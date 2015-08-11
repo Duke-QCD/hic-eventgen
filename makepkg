@@ -1,0 +1,35 @@
+#!/bin/bash
+
+pkgname='hic-osg'
+
+# create a temporary directory for installing files
+installdir=$(mktemp --directory)
+# and ensure it's cleaned on exit
+trap "rm -r $installdir" EXIT
+
+# build each model
+for i in models/*/; do
+  pushd $i
+
+  # create build directory and run cmake if necessary
+  if [[ -d build ]]; then
+    cd build
+  else
+    mkdir build && cd build
+    # disable install prefix by setting it to "/"
+    # the actual install location will be set by DESTDIR later
+    cmake \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX="/" \
+      ..
+  fi
+
+  # compile and install to the temporary directory
+  make --jobs=$(nproc) DESTDIR=$installdir/$pkgname install
+
+  popd
+done
+
+# create tgz for distributing to each job
+tar --verbose --create --gzip --file $pkgname.tar.gz \
+  --directory $installdir $pkgname

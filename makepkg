@@ -30,6 +30,9 @@ for i in models/*/; do
   popd
 done
 
+# install the event runner script
+cp -v models/run-event $installdir/$pkgname
+
 # create tgz for distributing to each job
 tar --verbose --create --gzip --file $pkgname.tar.gz \
   --directory $installdir $pkgname

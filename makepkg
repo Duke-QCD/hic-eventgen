@@ -21,11 +21,11 @@ for i in models/*/; do
     cmake \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX="/" \
-      ..
+      .. || exit 1
   fi
 
   # compile and install to the temporary directory
-  make --jobs=$(nproc) DESTDIR=$installdir/$pkgname install
+  make --jobs=$(nproc) DESTDIR=$installdir/$pkgname install || exit 1
 
   popd
 done

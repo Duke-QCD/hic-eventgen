@@ -1,0 +1,33 @@
+#!/bin/bash
+
+# gather system data
+uname -nr
+
+# read arguments
+inputfile=$1
+desturl=$2
+
+# load necessary modules
+source /cvmfs/oasis.opensciencegrid.org/osg/modules/lmod/current/init/bash
+module load python/3.4 all-pkgs gcc boost hdf5 || exit 1
+
+# unpack package
+pkgname='hic-osg'
+tar xzf $pkgname.tar.gz
+cd $pkgname
+
+# run the event
+./run-event ../$inputfile || exit 1
+
+# transfer results
+# retry several times
+for i in {0..9}; do
+  globus-url-copy \
+    -verbose \
+    -create-dest \
+    -restart \
+    results.hdf $desturl && break
+  # wait a bit and set unsuccessful status code
+  # if the transfer never succeeds, the job will report failure
+  sleep 10 && false
+done

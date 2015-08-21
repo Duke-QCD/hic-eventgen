@@ -35,7 +35,7 @@ def run_cmd(*args, **kwargs):
     """
     print(*args)
     subprocess.check_call(
-        itertools.chain.from_iterable(a.split() for a in args),
+        list(itertools.chain.from_iterable(a.split() for a in args)),
         **kwargs
     )
 

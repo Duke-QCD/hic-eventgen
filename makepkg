@@ -21,7 +21,7 @@ if [[ $(hostname) == 'xd-login.opensciencegrid.org' ]]; then
 
   # set c++ and fortran compiler flags
   export CXXFLAGS="-march=x86-64 -mtune=intel"
-  export FFLAGS="$CXXFLAGS -mcmodel=medium"
+  export FFLAGS="$CXXFLAGS"
 
   # explicitly set fortran compiler to override cmake default
   export FC='gfortran'

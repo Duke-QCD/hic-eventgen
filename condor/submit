@@ -1,0 +1,81 @@
+#!/bin/bash
+
+if ! voms-proxy-info -exists -hours 10 2> /dev/null; then
+  echo 'create a proxy first'
+  exit 1
+fi
+
+if [[ $# < 3 ]]; then
+  echo "usage: $0 batch_label events_per_input_file input_files..."
+  exit 1
+fi
+
+# parse arguments
+batchlabel=$1
+eventsperinput=$2
+inputfiles=${@:3}
+
+# construct full batch name and gridftp destination url
+batch="$batchlabel/$(date +%Y%m%d_%H%M%S)"
+desturl="gsiftp://ntheoryfs01.phy.duke.edu/var/phy/project/nukeserv/$USER/hic-events/$batch"
+
+# directory containing this script
+# http://stackoverflow.com/a/246128
+startdir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+# create a "scratch" directory for all the condor files
+scratchdir="/local-scratch/$USER/condor/$batch"
+mkdir -p $scratchdir
+
+# Create a condor submit description file.  This is the "template" job file for
+# every job in this batch with several $(...) variables to be set by the dag.
+# Request a rather small amount of memory to match as many hosts as possible
+# (default is 2G).  Also ensure the host has OASIS and the OS is recent
+# (otherwise glibc is too old).
+cat > $scratchdir/job <<EOF
+universe = vanilla
+x509userproxy = /tmp/x509up_u$(id --user)
++ProjectName = "Duke-QGP"
+
+request_memory = 512M
+request_disk = 128M
+requirements = (OpSysMajorVer >= 6) && (CVMFS_oasis_opensciencegrid_org_REVISION >= 4288)
+
+executable = $startdir/hic-event-wrapper
+arguments = \$(inputfile) $desturl/\$(nevent).hdf
+
+transfer_input_files = $startdir/../hic-osg.tar.gz, \$(inputfilepath)
++TransferOutput = ""
+
+output = $scratchdir/stdouterr/\$(inputfile)/\$(nevent).out
+error = $scratchdir/stdouterr/\$(inputfile)/\$(nevent).err
+
+queue
+EOF
+
+# create the condor dag file
+# process each input file
+for f in $inputfiles; do
+  inputfile=$(basename $f)
+  inputfilepath=$(readlink -e $f)
+
+  # progress indicator
+  # (it can take a while to generate the full dag file)
+  echo $inputfile
+
+  # create directories for job stdout and stderr files
+  mkdir -p $scratchdir/stdouterr/$inputfile
+
+  # write dag lines for each event
+  for nevent in $(seq -w 0 $(( eventsperinput - 1 ))); do
+    job="${inputfile}_${nevent}"
+    cat >> $scratchdir/dag <<EOF
+JOB $job $scratchdir/job
+VARS $job nevent="$nevent" inputfile="$inputfile" inputfilepath="$inputfilepath"
+RETRY $job 10
+EOF
+  done
+done
+
+# go!
+condor_submit_dag -maxidle 30000 $scratchdir/dag

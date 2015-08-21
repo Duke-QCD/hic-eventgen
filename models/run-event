@@ -126,6 +126,14 @@ def main():
                 data = np.array(column, dtype=dtype)
                 event_group.create_dataset(name, data=data, compression='lzf')
 
+        # There may be events that did not produce any particles; in this case
+        # the event number (n) will be less than the number of oversamples.
+        # Create an empty dataset for each of these events.
+        for n in range(n+1, oversamples):
+            event_group = particles_group.create_group(str(n))
+            for name, dtype in zip(names, dtypes):
+                event_group.create_dataset(name, shape=(0,), dtype=dtype)
+
 
 if __name__ == "__main__":
     main()

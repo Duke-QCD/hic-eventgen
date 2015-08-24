@@ -84,6 +84,14 @@ def main():
     oversamples = min(max(int(5e4/mult), 2), 100)
     run_cmd('./sampler oversamples={}'.format(oversamples), cwd='sampler')
 
+    # A non-empty hypersurface can still emit zero particles.  If no events
+    # produced any particles, the sampler output will contain the three-line
+    # OSCAR header and nothing else.  In this case end the event here.
+    with open('sampler/oscar.dat', 'rb') as f:
+        if next(itertools.islice(f, 3, None), None) is None:
+            print('no particles emitted')
+            return
+
     # hadronic afterburner
     run_cmd('./afterburner ../sampler/oscar.dat final.dat',
             cwd='urqmd-afterburner')

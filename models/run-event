@@ -81,7 +81,7 @@ def main():
 
     # sampler
     # estimate number of oversamples from IC mult
-    oversamples = min(max(int(5e4/mult), 2), 100)
+    oversamples = min(max(int(1e5/mult), 2), 100)
     run_cmd('./sampler oversamples={}'.format(oversamples), cwd='sampler')
 
     # A non-empty hypersurface can still emit zero particles.  If no events

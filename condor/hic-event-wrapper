@@ -20,14 +20,10 @@ cd $pkgname
 ./run-event ../$inputfile || exit 1
 
 # transfer results
-# retry several times
-for i in {0..9}; do
+# try to be fault-tolerant
+globus() {
   globus-url-copy \
-    -verbose \
-    -create-dest \
-    -restart \
-    results.hdf $desturl && break
-  # wait a bit and set unsuccessful status code
-  # if the transfer never succeeds, the job will report failure
-  sleep 10 && false
-done
+    -verbose -create-dest -restart -stall-timeout 30 $@ \
+    results.hdf $desturl
+}
+globus || globus -no-data-channel-authentication -no-third-party-transfers

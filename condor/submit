@@ -15,16 +15,18 @@ batchlabel=$1
 eventsperinput=$2
 inputfiles=${@:3}
 
-# construct full batch name and gridftp destination url
-batch="$batchlabel/$(date +%Y%m%d_%H%M%S)"
-desturl="gsiftp://ntheoryfs01.phy.duke.edu/var/phy/project/nukeserv/$USER/hic-events/$batch"
+# every batch needs a unique ID -- a timestamp works well
+timestamp="$(date +%Y%m%d_%H%M%S)"
+
+# gridftp destination for all events in this batch
+desturl="gsiftp://ntheoryfs01.phy.duke.edu/var/phy/project/nukeserv/$USER/hic-events/$batchlabel"
 
 # directory containing this script
 # http://stackoverflow.com/a/246128
 startdir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # create a "scratch" directory for all the condor files
-scratchdir="/local-scratch/$USER/condor/$batch"
+scratchdir="/local-scratch/$USER/condor/$batchlabel/$timestamp"
 mkdir -p $scratchdir
 
 # Create a condor submit description file.  This is the "template" job file for
@@ -42,7 +44,7 @@ request_disk = 128M
 requirements = (OpSysMajorVer >= 6) && (CVMFS_oasis_opensciencegrid_org_REVISION >= 4288)
 
 executable = $startdir/hic-event-wrapper
-arguments = \$(inputfile) $desturl/\$(nevent).hdf
+arguments = \$(inputfile) $desturl/\$(inputfile)/$timestamp/\$(nevent).hdf
 
 transfer_input_files = $startdir/../hic-osg.tar.gz, \$(inputfilepath)
 +TransferOutput = ""

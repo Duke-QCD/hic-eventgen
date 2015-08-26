@@ -16,8 +16,8 @@ pkgname='hic-osg'
 tar xzf $pkgname.tar.gz
 cd $pkgname
 
-# run the event
-./run-event ../$inputfile || exit 1
+# run the events
+./run-events ../$inputfile || exit 1
 
 # transfer results
 # try to be fault-tolerant

@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+
+"""
+Generates a Latin-hypercube design, outputs the design as a table, and writes
+input files for running events on the OSG.
+
+Must have R with package 'lhs'.
+"""
+
+import os
+import subprocess
+
+import numpy as np
+import scipy.interpolate as interp
+
+
+#     label        min    max  guess
+design_params = [
+    ('norm',     100.0, 250.0, 180.0),
+    ('p',         -1.0,   1.0,   0.0),
+    ('k',          0.8,   2.2,   1.4),
+    ('w',          0.4,   1.0,   0.6),
+    ('etas_hrg',   0.3,   1.0,   0.5),
+    ('etas_min',   0.0,   0.3,   0.1),
+    ('etas_slope', 0.0,   2.0,   1.0),
+    ('zetas_norm', 0.0,   2.0,   0.5),
+    ('T_switch',   0.135, 0.165, 0.150),
+]
+
+input_file_template = '''\
+ic_args = --normalization {norm} --reduced-thickness {p} --fluctuation {k} --nucleon-width {w}
+hydro_args = etas_hrg={etas_hrg} etas={etas_min} etas_slope={etas_slope} visbulknorm={zetas_norm} edec={e_switch}
+'''
+
+
+def generate_lhs(npoints, ndim, seed=np.random.randint(2**30)):
+    """
+    Call R to generate a maximin LHS.
+
+    """
+    output = subprocess.check_output(
+        ['R', '--slave'],
+        input="""
+        library('lhs')
+        set.seed({})
+        write.table(maximinLHS({}, {}), col.names=FALSE, row.names=FALSE)
+        """.format(seed, npoints, ndim).encode(),
+    )
+
+    return np.array([l.split() for l in output.splitlines()], dtype=float)
+
+
+def main():
+    lhs = generate_lhs(300, len(design_params), seed=716535127)
+
+    zip_params = zip(*design_params)
+    labels = list(next(zip_params))
+    low, high, guess = map(np.array, zip_params)
+
+    # rescale the hypercube to the design range
+    design = lhs*(high - low) + low
+
+    # sort by normalized distance from the guess point
+    # this way better points will in general run earlier
+    order = np.square((design - guess) / (high - low)).sum(axis=1).argsort()
+    design = design[order]
+
+    try:
+        eos = np.loadtxt('../models/vishnew/build/eos/eos.dat')
+    except FileNotFoundError:
+        print('make the vishnew eos table first')
+        exit(1)
+
+    # spline to convert temperature to energy density
+    T_to_e = interp.InterpolatedUnivariateSpline(eos[:, 3], eos[:, 0])
+
+    try:
+        os.mkdir('inputs')
+    except FileExistsError:
+        pass
+
+    # output table and write input files
+    print('#', *labels)
+    for n, row in enumerate(design):
+        print(*row)
+        with open('inputs/{:03d}'.format(n), 'w') as f:
+            params = dict(zip(labels, row))
+            params['e_switch'] = T_to_e(params['T_switch'])
+            f.write(input_file_template.format(**params))
+
+    # make a fancy plot of the design
+    if False:
+        import matplotlib.pyplot as plt
+        import pandas as pd
+        import seaborn as sns
+
+        grid = sns.PairGrid(pd.DataFrame(design, columns=labels))
+        grid.map_diag(plt.hist, bins=30, edgecolor='white', alpha=0.7)
+        grid.map_offdiag(plt.scatter,
+                         color=sns.color_palette('Blues_d', design.shape[0]))
+
+        for axes, l, h, g in zip(grid.axes, low, high, guess):
+            for ax in axes:
+                ax.set_ylim(l, h)
+                ax.axhline(g, color='.3', zorder=100)
+
+        for axes, l, h, g in zip(grid.axes.T, low, high, guess):
+            for ax in axes:
+                ax.set_xlim(l, h)
+                ax.axvline(g, color='.3', zorder=100)
+
+        plt.savefig('design.pdf')
+
+
+if __name__ == "__main__":
+    main()

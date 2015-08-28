@@ -31,16 +31,13 @@ mkdir -p $scratchdir
 
 # Create a condor submit description file.  This is the "template" job file for
 # every job in this batch with several $(...) variables to be set by the dag.
-# Request a rather small amount of memory to match as many hosts as possible
-# (default is 2G).  Also ensure the host has OASIS and the OS is recent
-# (otherwise glibc is too old).
 cat > $scratchdir/job <<EOF
 universe = vanilla
 x509userproxy = /tmp/x509up_u$(id --user)
 +ProjectName = "Duke-QGP"
 
-request_memory = 512M
-request_disk = 128M
+request_memory = 1.5G
+request_disk = 1G
 requirements = (OpSysMajorVer >= 6) && (CVMFS_oasis_opensciencegrid_org_REVISION >= 4288)
 
 executable = $startdir/hic-event-wrapper

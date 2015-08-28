@@ -39,6 +39,7 @@ x509userproxy = /tmp/x509up_u$(id --user)
 request_memory = 1.5G
 request_disk = 1G
 requirements = (OpSysMajorVer >= 6) && (CVMFS_oasis_opensciencegrid_org_REVISION >= 4288)
+rank = KFlops
 
 executable = $startdir/hic-event-wrapper
 arguments = \$(inputfile) $desturl/\$(inputfile)/$timestamp/\$(nevent).hdf

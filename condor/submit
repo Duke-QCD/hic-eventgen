@@ -6,13 +6,13 @@ if ! voms-proxy-info -exists -hours 10 2> /dev/null; then
 fi
 
 if [[ $# < 3 ]]; then
-  echo "usage: $0 batch_label events_per_input_file input_files..."
+  echo "usage: $0 batch_label jobs_per_input_file input_files..."
   exit 1
 fi
 
 # parse arguments
 batchlabel=$1
-eventsperinput=$2
+jobsperinput=$2
 inputfiles=${@:3}
 
 # every batch needs a unique ID -- a timestamp works well
@@ -41,14 +41,14 @@ request_disk = 1G
 requirements = (OpSysMajorVer >= 6) && (CVMFS_oasis_opensciencegrid_org_REVISION >= 4288)
 rank = KFlops
 
-executable = $startdir/hic-event-wrapper
-arguments = \$(inputfile) $desturl/\$(inputfile)/$timestamp/\$(nevent).hdf
+executable = $startdir/hic-wrapper
+arguments = \$(inputfile) $desturl/\$(inputfile)/$timestamp/\$(njob).hdf
 
 transfer_input_files = $startdir/../hic-osg.tar.gz, \$(inputfilepath)
 +TransferOutput = ""
 
-output = $scratchdir/stdouterr/\$(inputfile)/\$(nevent).out
-error = $scratchdir/stdouterr/\$(inputfile)/\$(nevent).err
+output = $scratchdir/stdouterr/\$(inputfile)/\$(njob).out
+error = $scratchdir/stdouterr/\$(inputfile)/\$(njob).err
 
 queue
 EOF
@@ -66,12 +66,12 @@ for f in $inputfiles; do
   # create directories for job stdout and stderr files
   mkdir -p $scratchdir/stdouterr/$inputfile
 
-  # write dag lines for each event
-  for nevent in $(seq -w 0 $(( eventsperinput - 1 ))); do
-    job="${inputfile}_${nevent}"
+  # write dag lines for each job
+  for njob in $(seq -w 0 $(( jobsperinput - 1 ))); do
+    job="${inputfile}_${njob}"
     cat >> $scratchdir/dag <<EOF
 JOB $job $scratchdir/job
-VARS $job nevent="$nevent" inputfile="$inputfile" inputfilepath="$inputfilepath"
+VARS $job njob="$njob" inputfile="$inputfile" inputfilepath="$inputfilepath"
 RETRY $job 10
 EOF
   done

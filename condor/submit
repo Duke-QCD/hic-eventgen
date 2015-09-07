@@ -78,4 +78,4 @@ EOF
 done
 
 # go!
-condor_submit_dag -maxidle 30000 $scratchdir/dag
+condor_submit_dag -maxidle 10000 $scratchdir/dag

@@ -51,6 +51,7 @@ output = $scratchdir/stdouterr/\$(inputfile)/\$(njob).out
 error = $scratchdir/stdouterr/\$(inputfile)/\$(njob).err
 
 periodic_release = (HoldReasonCode =?= 13)
+periodic_remove = (HoldReasonCode =?= 1) && (NumJobStarts >= 6)
 
 queue
 EOF

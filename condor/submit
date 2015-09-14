@@ -50,6 +50,8 @@ transfer_input_files = $startdir/../hic-osg.tar.gz, \$(inputfilepath)
 output = $scratchdir/stdouterr/\$(inputfile)/\$(njob).out
 error = $scratchdir/stdouterr/\$(inputfile)/\$(njob).err
 
+periodic_release = (HoldReasonCode =?= 13)
+
 queue
 EOF
 

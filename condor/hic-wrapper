@@ -26,4 +26,9 @@ globus() {
     -verbose -create-dest -restart -stall-timeout 30 $@ \
     results.hdf $desturl
 }
-globus || globus -no-data-channel-authentication -no-third-party-transfers
+
+for i in {1..5}; do
+  globus && break
+  sleep 5 && false
+done || \
+  globus -no-data-channel-authentication -no-third-party-transfers

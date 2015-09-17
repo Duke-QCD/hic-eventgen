@@ -56,28 +56,32 @@ periodic_remove = (HoldReasonCode =?= 1) && (NumJobStarts >= 6)
 queue
 EOF
 
-# create the condor dag file
-# process each input file
+# create a dag template with entries for each input file
+# and replacement strings for the job numbers
+njob_replace='{NJOB}'
+
 for f in $inputfiles; do
   inputfile=$(basename $f)
   inputfilepath=$(readlink -e $f)
 
-  # progress indicator
-  # (it can take a while to generate the full dag file)
-  echo $inputfile
-
   # create directories for job stdout and stderr files
   mkdir -p $scratchdir/stdouterr/$inputfile
 
-  # write dag lines for each job
-  for njob in $(seq -w 0 $(( jobsperinput - 1 ))); do
-    job="${inputfile}_${njob}"
-    cat >> $scratchdir/dag <<EOF
+  # write dag lines
+  job="${inputfile}_${njob_replace}"
+  cat >> $scratchdir/dag.template <<EOF
 JOB $job $scratchdir/job
-VARS $job njob="$njob" inputfile="$inputfile" inputfilepath="$inputfilepath"
+VARS $job inputfile="$inputfile" inputfilepath="$inputfilepath" njob="$njob_replace"
 RETRY $job 10
 EOF
-  done
+done
+
+# create the actual condor dag file from the template
+for njob in $(seq -w 0 $(( jobsperinput - 1 ))); do
+  # progress indicator
+  # (it can take a moment to generate the full dag file)
+  echo $njob
+  sed "s/${njob_replace}/${njob}/g" $scratchdir/dag.template >> $scratchdir/dag
 done
 
 # go!

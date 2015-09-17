@@ -72,7 +72,7 @@ for f in $inputfiles; do
   cat >> $scratchdir/dag.template <<EOF
 JOB $job $scratchdir/job
 VARS $job inputfile="$inputfile" inputfilepath="$inputfilepath" njob="$njob_replace"
-RETRY $job 10
+RETRY $job 3
 EOF
 done
 

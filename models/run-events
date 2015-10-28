@@ -27,8 +27,8 @@ Saves all results in HDF5 file 'results.hdf' with hierarchy:
       | - eta
 
 If an argument is passed, it is read as a configuration file with simple
-key = value syntax.  Currently the only known keys are 'ic_args' and
-'hydro_args'.  The values are passed as arguments directly to the initial
+key = value syntax.  Currently the only known keys are 'trento_args' and
+'vishnew_args'.  The values are passed as arguments directly to the initial
 condition and hydro programs.
 """
 
@@ -65,7 +65,7 @@ def _run_event(event_group, **config):
     np.savetxt('vishnew/initial.dat', event_group['initial'], fmt='%.12g')
 
     # hydro
-    run_cmd('./vishnew', config.get('hydro_args', ''), cwd='vishnew')
+    run_cmd('./vishnew', config.get('vishnew_args', ''), cwd='vishnew')
 
     # an empty hypersurface file means the IC was too cold to produce any
     # particles from Cooper-Frye, so just end the event here
@@ -169,7 +169,7 @@ def main():
     # initial condition
     run_cmd('./bin/trento Pb Pb 10',
             '--cross-section 6.4 --grid-max 13.05 --grid-step 0.1',
-            '--output {}'.format(results_file), config.get('ic_args', ''))
+            '--output {}'.format(results_file), config.get('trento_args', ''))
 
     with h5py.File(results_file, 'r+') as f:
         # move the IC datasets into event subgroups

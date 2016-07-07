@@ -42,7 +42,7 @@ requirements = (OpSysMajorVer >= 6) && (CVMFS_oasis_opensciencegrid_org_REVISION
 rank = KFlops
 
 executable = $startdir/hic-wrapper
-arguments = \$(inputfile) $desturl/\$(inputfile)/$timestamp/\$(njob).hdf
+arguments = \$(inputfile) $desturl/\$(inputfile)/$timestamp/\$(njob)
 
 transfer_input_files = $startdir/../hic-osg.tar.gz, \$(inputfilepath)
 +TransferOutput = ""

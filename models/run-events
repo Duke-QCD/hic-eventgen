@@ -3,42 +3,42 @@
 """
 Runs several complete heavy-ion collision events:
 
-  - initial condition
-  - hydro
-  - Cooper-Frye sampler
-  - UrQMD afterburner
-
-Saves all results in HDF5 file 'results.hdf' with hierarchy:
-
-  - Top-level numbered groups for each event.
-  |
-  | - Dataset 'initial' contains the initial entropy profile and has
-  |   attributes for impact parameter, npart, mult, and eccentricities.
-  |
-  | - Group 'particles' contains all particle data, if any particles were
-    | emitted.
-    |
-    | - Numbered groups for each oversample, each containing datasets:
-      | - ID
-      | - charge
-      | - mass
-      | - pT
-      | - phi
-      | - eta
+  - initial condition (trento)
+  - hydro (vishnew)
+  - particlization / sampler (frzout)
+  - hadronic afterburner (urqmd)
 
 If an argument is passed, it is read as a configuration file with simple
-key = value syntax.  Currently the only known keys are 'trento_args' and
-'vishnew_args'.  The values are passed as arguments directly to the initial
-condition and hydro programs.
+key = value syntax and stored in the 'config' dict.  Values are then accessed
+with 'config.get()' and hence all have reasonable defaults.
+
+For each event, computes observables (multiplicities, mean transverse momenta,
+flow vectors, etc) and saves them in raw binary file 'results', which may be
+read by np.fromfile() using the same dtype as the 'results' array.
+
+Some advantages of this format:
+
+  - speed and file size (zero overhead)
+  - files may be concatened together
+  - easy I/O in numpy (fromfile/tofile)
+
+A disadvantage:
+
+  - no metadata is saved, so the precise data type must be known and fully
+    specified or the files are nonsense
+
 """
 
-import itertools
-import os
+from itertools import chain
 import sys
 import subprocess
 
 import numpy as np
 import h5py
+
+# load libraries distributed with hic-osg
+sys.path.insert(1, 'lib/python')
+import frzout
 
 
 def run_cmd(*args, **kwargs):
@@ -46,145 +46,169 @@ def run_cmd(*args, **kwargs):
     Run a subprocess, concatenating argument strings together.
 
     """
-    print(*args)
+    print(*args, flush=True)  # flush stdout to retain output order
     subprocess.check_call(
-        list(itertools.chain.from_iterable(a.split() for a in args)),
+        list(chain.from_iterable(a.split() for a in args)),
         **kwargs
     )
 
 
-def _run_event(event_group, **config):
+def read_text_file(filename):
     """
-    Run a complete event.
-
-    Start with the initial condition dataset in the given HDF5 event group.
-    Save all particle data to the same HDF5 group.
+    Read a text file into a nested list of bytes objects,
+    skipping comment lines (#).
 
     """
-    # write the profile in plain text for input to vishnew
-    np.savetxt('vishnew/initial.dat', event_group['initial'], fmt='%.12g')
-
-    # hydro
-    run_cmd('./vishnew', config.get('vishnew_args', ''), cwd='vishnew')
-
-    # an empty hypersurface file means the IC was too cold to produce any
-    # particles from Cooper-Frye, so just end the event here
-    if os.stat('vishnew/surface.dat').st_size == 0:
-        print('empty hypersurface')
-        return
-
-    # move the hypersurface file for input to the sampler
-    os.rename('vishnew/surface.dat', 'sampler/surface.dat')
-
-    # sampler
-    # estimate number of oversamples from IC mult
-    mult = event_group['initial'].attrs['mult']
-    noversamples = min(max(int(1e5/mult), 2), 100)
-    run_cmd('./sampler oversamples={}'.format(noversamples), cwd='sampler')
-
-    # A non-empty hypersurface can still emit zero particles.  If no events
-    # produced any particles, the sampler output will contain the three-line
-    # OSCAR header and nothing else.  In this case end the event here.
-    with open('sampler/oscar.dat', 'rb') as f:
-        if next(itertools.islice(f, 3, None), None) is None:
-            print('no particles emitted')
-            return
-
-    # hadronic afterburner
-    run_cmd('./afterburner ../sampler/oscar.dat final.dat',
-            cwd='urqmd-afterburner')
-
-    # parse urqmd output and write to the HDF5 results file
-    with open('urqmd-afterburner/final.dat', 'rb') as f:
-        # create an HDF5 group for all particle data
-        particles_group = event_group.create_group('particles')
-
-        # break urqmd output into oversamples by splitting on headers
-        oversamples = (group for is_header, group in
-                       itertools.groupby(f, lambda x: x.startswith(b'#'))
-                       if not is_header)
-
-        # define particle data names and types
-        names, dtypes = zip(
-            ('ID',     np.int32),
-            ('charge', np.int32),
-            ('mass',   np.float64),
-            ('pT',     np.float64),
-            ('phi',    np.float64),
-            ('eta',    np.float64),
-        )
-
-        for n, oversample in enumerate(oversamples):
-            # create a numbered HDF5 group for this oversample
-            grp = particles_group.create_group(str(n))
-
-            # transpose the event lines into columns
-            columns = zip(*(i.split() for i in oversample))
-
-            # save each column as a 1D dataset
-            # lzf compression is very fast, see http://www.h5py.org/lzf
-            for name, dtype, column in zip(names, dtypes, columns):
-                data = np.array(column, dtype=dtype)
-                grp.create_dataset(name, data=data, compression='lzf')
-
-        # There may be events that did not produce any particles; in this case
-        # the event number (n) will be less than the number of oversamples.
-        # Create an empty dataset for each of these events.
-        for n in range(n+1, noversamples):
-            grp = particles_group.create_group(str(n))
-            for name, dtype in zip(names, dtypes):
-                grp.create_dataset(name, shape=(0,), dtype=dtype)
-
-
-def run_events(hdf5_file, **config):
-    """
-    _run_event wrapper to catch subprocess exceptions and yield True/False.
-
-    """
-    for name, group in hdf5_file.items():
-        try:
-            _run_event(group, **config)
-        except subprocess.CalledProcessError as e:
-            print('event', name, 'failed:',
-                  'command', ' '.join(e.cmd), 'returned', e.returncode,
-                  file=sys.stderr)
-            # delete group for the failed event
-            del hdf5_file[name]
-            yield False
-        else:
-            yield True
+    with open(filename, 'rb') as f:
+        return [l.split() for l in f if not l.startswith(b'#')]
 
 
 def main():
     # parse config file
     if len(sys.argv) == 2:
         with open(sys.argv[1], 'r') as f:
-            config = dict((i.strip() for i in l.split('=', maxsplit=1))
-                          for l in f)
+            config = dict(
+                (i.strip() for i in l.split('=', maxsplit=1))
+                for l in f
+            )
     else:
         config = {}
 
-    results_file = 'results.hdf'
+    nevents = 10
 
-    # initial condition
-    run_cmd('./bin/trento Pb Pb 10',
+    # run trento and yield initial entropy density arrays
+    def initial_conditions(initial_file='initial.hdf'):
+        run_cmd(
+            './bin/trento Pb Pb', str(nevents),
             '--cross-section 6.4 --grid-max 13.05 --grid-step 0.1',
-            '--output {}'.format(results_file), config.get('trento_args', ''))
+            '--output', initial_file,
+            config.get('trento_args', '')
+        )
 
-    with h5py.File(results_file, 'r+') as f:
-        # move the IC datasets into event subgroups
-        for n, dset in enumerate(f):
-            f.move(dset, '{}/initial'.format(n))
+        with h5py.File(initial_file, 'r') as f:
+            for dset in f.values():
+                yield np.array(dset)
 
-        # run each event and save exit status
-        status = list(run_events(f, **config))
+    # create sampler HRG object (to be reused for all events)
+    Tswitch = float(config.get('Tswitch', .15))
+    hrg = frzout.HRG(Tswitch, species='urqmd', res_width=True)
 
-    print('{}/{}'.format(sum(status), len(status)),
-          'events finished successfully')
+    # append switching energy density to vishnew arguments
+    vishnew_args = [
+        config.get('vishnew_args', ''),
+        'edec={}'.format(hrg.energy_density())
+    ]
 
-    # exit failure if no events completed
-    if not any(status):
-        sys.exit(1)
+    # species (name, ID) for identified particle observables
+    species = [
+        ('pion', 211),
+        ('kaon', 321),
+        ('proton', 2212),
+    ]
+
+    # fully specify numeric data types, including endianness and size, to
+    # ensure consistency across all machines
+    float_t = '<f8'
+    int_t = '<i8'
+    complex_t = '<c16'
+
+    # allocate results array (see docstring at top of file)
+    results = np.zeros(
+        nevents, dtype=[
+            ('dNch_deta', float_t),
+            ('dN_dy', [(s, float_t) for (s, _) in species]),
+            ('mean_pT', [(s, float_t) for (s, _) in species]),
+            ('M', int_t),
+            ('Qn', complex_t, 6),
+        ]
+    )
+
+    # run each event
+    for ic, res in zip(initial_conditions(), results):
+        # write IC profile in plain text for input to vishnew
+        np.savetxt('vishnew/initial.dat', ic)
+
+        # hydro
+        run_cmd('./vishnew', *vishnew_args, cwd='vishnew')
+
+        # read freeze-out surface data
+        surface_data = np.array(
+            read_text_file('vishnew/surface.dat'),
+            dtype=float
+        )
+
+        # end event if the surface is empty -- this occurs in ultra-peripheral
+        # events where the initial condition doesn't exceed Tswitch
+        if surface_data.size == 0:
+            print('empty hypersurface')
+            continue
+
+        # unpack surface_data columns:
+        #   0    1  2  3         4         5         6    7
+        #   tau  x  y  dsigma_t  dsigma_x  dsigma_y  v_x  v_y
+        #   8     9     10    11    12    13    14    15
+        #   pi00  pi01  pi02  pi11  pi12  pi22  pi33  PI
+        x, sigma, v, _, _ = np.hsplit(surface_data, [3, 6, 8, 15])
+
+        # create sampler surface object
+        surface = frzout.Surface(x, sigma, v, ymax=2)
+
+        minsamples, maxsamples = 2, 100  # reasonable range for nsamples
+        minparts = 10**5  # min number of particles to sample
+        nparts = 0  # for tracking total number of sampled particles
+
+        # sample particles and write to file
+        with open('urqmd-afterburner/initial.dat', 'w') as f:
+            for nsamples in range(1, maxsamples + 1):
+                parts = frzout.sample(surface, hrg)
+                if parts.size == 0:
+                    continue
+                nparts += parts.size
+                print('#', parts.size, file=f)
+                for p in parts:
+                    print(p['ID'], *chain(p['x'], p['p']), file=f)
+                if nparts >= minparts and nsamples >= minsamples:
+                    break
+
+        print('nsamples =', nsamples)
+        print('nparts =', nparts)
+
+        if nparts == 0:
+            continue
+
+        # hadronic afterburner
+        run_cmd('./afterburner initial.dat final.dat', cwd='urqmd-afterburner')
+
+        # read final particle data
+        ID, charge, pT, phi, y, eta = (
+            np.array(col, dtype=dtype) for (col, dtype) in
+            zip(
+                zip(*read_text_file('urqmd-afterburner/final.dat')),
+                (2*[int] + 4*[float])
+            )
+        )
+
+        # compute observables
+        charged = (charge != 0)
+        abs_eta = np.fabs(eta)
+
+        res['dNch_deta'] = \
+            np.count_nonzero(charged & (abs_eta < .5)) / nsamples
+
+        abs_ID = np.abs(ID)
+        midrapidity = (np.fabs(y) < .5)
+
+        for name, i in species:
+            cut = (abs_ID == i) & midrapidity
+            N = np.count_nonzero(cut)
+            res['dN_dy'][name] = N / nsamples
+            res['mean_pT'][name] = (0. if N == 0 else pT[cut].mean())
+
+        phi_alice = phi[charged & (abs_eta < .8) & (.2 < pT) & (pT < 5.)]
+        res['M'] = phi_alice.size
+        res['Qn'] = [np.exp(1j*n*phi_alice).sum() for n in range(1, 7)]
+
+    results.tofile('results')
 
 
 if __name__ == "__main__":

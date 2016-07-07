@@ -24,7 +24,7 @@ cd $pkgname
 globus() {
   globus-url-copy \
     -verbose -create-dest -restart -stall-timeout 30 $@ \
-    results.hdf $desturl
+    results $desturl
 }
 
 for i in {1..5}; do

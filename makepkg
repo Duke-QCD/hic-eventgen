@@ -32,38 +32,53 @@ if [[ $(hostname) == 'xd-login.opensciencegrid.org' ]]; then
   export LDFLAGS="-L${LIBRARY_PATH//:/ -L}"
 fi
 
-pkgname='hic-osg'
-
 # create a temporary directory for installing files
 installdir=$(mktemp --directory)
 # and ensure it's cleaned on exit
 trap "rm -r $installdir" EXIT
 
+pkgname='hic-osg'
+pkgdir="$installdir/$pkgname"
+
 # build each model
 for i in models/*/; do
   pushd $i
 
-  # create build directory and run cmake if necessary
-  if [[ -d build ]]; then
-    cd build
-  else
-    mkdir build && cd build
-    # disable install prefix by setting it to "/"
-    # the actual install location will be set by DESTDIR later
-    cmake \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_INSTALL_PREFIX="/" \
-      .. || exit 1
-  fi
+  # determine whether to build with CMake or python
+  if [[ -f CMakeLists.txt ]]; then
+    # create build directory and run cmake if necessary
+    if [[ -d build ]]; then
+      cd build
+    else
+      mkdir build && cd build
+      # disable install prefix by setting it to "/"
+      # the actual install location will be set by DESTDIR later
+      cmake \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="/" \
+        .. || exit 1
+    fi
 
-  # compile and install to the temporary directory
-  make --jobs=$(nproc) DESTDIR=$installdir/$pkgname install || exit 1
+    # compile and install to the temporary directory
+    make --jobs=$(nproc) DESTDIR=$pkgdir install || exit 1
+  elif [[ -f setup.py ]]; then
+    # install python packages with custom scheme
+    python3 setup.py install \
+      --no-compile \
+      --root=$pkgdir \
+      --install-lib=lib/python \
+      --install-scripts=bin \
+      || exit 1
+  else
+    echo "unknown build system for model $i"
+    exit 1
+  fi
 
   popd
 done
 
 # install the event runner script
-cp -v models/run-events $installdir/$pkgname
+cp -v models/run-events $pkgdir
 
 # create tgz for distributing to each job
 tar --verbose --create --gzip --file $pkgname.tar.gz \

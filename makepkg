@@ -10,7 +10,7 @@ if [[ $(hostname) == 'xd-login.opensciencegrid.org' ]]; then
   #  - recent version of cmake
   #  - boost for c++ codes
   #  - hdf5 for trento
-  #  - python and packages for generating the vishnew EOS table
+  #  - python and packages
   module purge
   module load gcc cmake boost hdf5 python/3.4 all-pkgs
 
@@ -19,8 +19,9 @@ if [[ $(hostname) == 'xd-login.opensciencegrid.org' ]]; then
   export CMAKE_INCLUDE_PATH=$CPATH
   export CMAKE_LIBRARY_PATH=$LIBRARY_PATH
 
-  # set c++ and fortran compiler flags
+  # set compiler flags
   export CXXFLAGS="-march=x86-64 -mtune=intel"
+  export CFLAGS="$CXXFLAGS -Wno-declaration-after-statement"
   export FFLAGS="$CXXFLAGS"
 
   # explicitly set fortran compiler to override cmake default

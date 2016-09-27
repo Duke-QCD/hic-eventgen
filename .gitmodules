@@ -1,6 +1,9 @@
 [submodule "models/trento"]
 	path = models/trento
 	url = https://github.com/Duke-QCD/trento.git
+[submodule "models/freestream"]
+	path = models/freestream
+	url = https://github.com/Duke-QCD/freestream.git
 [submodule "models/vishnew"]
 	path = models/vishnew
 	url = https://github.com/jbernhard/vishnew.git

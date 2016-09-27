@@ -38,6 +38,7 @@ import h5py
 
 # load libraries distributed with hic-osg
 sys.path.insert(1, 'lib/python')
+import freestream
 import frzout
 
 
@@ -75,12 +76,14 @@ def main():
         config = {}
 
     nevents = 10
+    grid_max = 13.05
 
     # run trento and yield initial entropy density arrays
     def initial_conditions(initial_file='initial.hdf'):
         run_cmd(
             './bin/trento Pb Pb', str(nevents),
-            '--cross-section 6.4 --grid-max 13.05 --grid-step 0.1',
+            '--cross-section 6.4',
+            '--grid-step 0.1 --grid-max {}'.format(grid_max),
             '--output', initial_file,
             config.get('trento_args', '')
         )
@@ -89,6 +92,10 @@ def main():
             for dset in f.values():
                 yield np.array(dset)
 
+    # read free streaming time and enable for time > epsilon
+    tau_fs = float(config.get('tau_fs', 0))
+    enable_fs = tau_fs > .001
+
     # create sampler HRG object (to be reused for all events)
     Tswitch = float(config.get('Tswitch', .15))
     hrg = frzout.HRG(Tswitch, species='urqmd', res_width=True)
@@ -96,6 +103,8 @@ def main():
     # append switching energy density to vishnew arguments
     vishnew_args = [
         config.get('vishnew_args', ''),
+        'initialuread=1 iein=0 t0={}'.format(tau_fs) if enable_fs else
+        'initialuread=0 iein=1',
         'edec={}'.format(hrg.energy_density())
     ]
 
@@ -125,8 +134,19 @@ def main():
 
     # run each event
     for ic, res in zip(initial_conditions(), results):
-        # write IC profile in plain text for input to vishnew
-        np.savetxt('vishnew/initial.dat', ic)
+        # write initial file[s] for vishnew
+        if enable_fs:
+            # free stream initial condition
+            fs = freestream.FreeStreamer(ic, grid_max, tau_fs)
+            np.savetxt('vishnew/ed.dat', fs.energy_density())
+            for i in [1, 2]:
+                np.savetxt('vishnew/u{}.dat'.format(i), fs.flow_velocity(i))
+            for ij in [(1, 1), (1, 2), (2, 2)]:
+                np.savetxt(
+                    'vishnew/pi{}{}.dat'.format(*ij), fs.shear_tensor(*ij))
+        else:
+            # skip free streaming, use initial condition as entropy density
+            np.savetxt('vishnew/sd.dat', ic)
 
         # hydro
         run_cmd('./vishnew', *vishnew_args, cwd='vishnew')

@@ -145,13 +145,15 @@ def main():
 
         # unpack surface_data columns:
         #   0    1  2  3         4         5         6    7
-        #   tau  x  y  dsigma_t  dsigma_x  dsigma_y  v_x  v_y
+        #   tau  x  y  dsigma^t  dsigma^x  dsigma^y  v_x  v_y
         #   8     9     10    11    12    13    14    15
-        #   pi00  pi01  pi02  pi11  pi12  pi22  pi33  PI
-        x, sigma, v, _, _ = np.hsplit(surface_data, [3, 6, 8, 15])
+        #   pitt  pitx  pity  pixx  pixy  piyy  pizz  Pi
+        x, sigma, v, _ = np.hsplit(surface_data, [3, 6, 8])
+        pi = dict(zip(['xx', 'xy', 'yy'], surface_data.T[11:14]))
+        Pi = surface_data.T[15]
 
         # create sampler surface object
-        surface = frzout.Surface(x, sigma, v, ymax=2)
+        surface = frzout.Surface(x, sigma, v, pi=pi, Pi=Pi, ymax=2)
 
         minsamples, maxsamples = 2, 100  # reasonable range for nsamples
         minparts = 10**5  # min number of particles to sample

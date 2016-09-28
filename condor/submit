@@ -36,7 +36,7 @@ universe = vanilla
 x509userproxy = /tmp/x509up_u$(id --user)
 +ProjectName = "Duke-QGP"
 
-request_memory = 1.5G
+request_memory = 500M
 request_disk = 1G
 requirements = HAS_CVMFS_oasis_opensciencegrid_org
 rank = KFlops

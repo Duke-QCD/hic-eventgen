@@ -21,13 +21,26 @@ timestamp="$(date +%Y%m%d_%H%M%S)"
 # gridftp destination for all events in this batch
 desturl="gsiftp://ntheoryfs01.phy.duke.edu/var/phy/project/nukeserv/$USER/hic-events/$batchlabel"
 
-# directory containing this script
+# change to project root directory, one level above this script
 # http://stackoverflow.com/a/246128
-startdir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+cd "$(dirname "${BASH_SOURCE[0]}")"/..
 
 # create a "scratch" directory for all the condor files
 scratchdir="/local-scratch/$USER/condor/$batchlabel/$timestamp"
 mkdir -p $scratchdir
+
+# make package, place in scratch directory
+pkgfile='hic-osg.tar.gz'
+./makepkg $scratchdir
+
+# copy condor executable to scratch
+exefile='hic-wrapper'
+cp -v condor/$exefile $scratchdir
+
+# copy input files to scratch
+inputfiledir="$scratchdir/inputfiles"
+mkdir $inputfiledir
+cp -v $inputfiles $inputfiledir
 
 # Create a condor submit description file.  This is the "template" job file for
 # every job in this batch with several $(...) variables to be set by the dag.
@@ -41,10 +54,10 @@ request_disk = 1G
 requirements = HAS_CVMFS_oasis_opensciencegrid_org
 rank = KFlops
 
-executable = $startdir/hic-wrapper
+executable = $scratchdir/$exefile
 arguments = \$(inputfile) $desturl/\$(inputfile)/$timestamp/\$(njob)
 
-transfer_input_files = $startdir/../hic-osg.tar.gz, \$(inputfilepath)
+transfer_input_files = $scratchdir/$pkgfile, $inputfiledir/\$(inputfile)
 +TransferOutput = ""
 
 output = $scratchdir/stdouterr/\$(inputfile)/\$(njob).out
@@ -62,7 +75,6 @@ njob_replace='{NJOB}'
 
 for f in $inputfiles; do
   inputfile=$(basename $f)
-  inputfilepath=$(readlink -e $f)
 
   # create directories for job stdout and stderr files
   mkdir -p $scratchdir/stdouterr/$inputfile
@@ -71,7 +83,7 @@ for f in $inputfiles; do
   job="${inputfile}_${njob_replace}"
   cat >> $scratchdir/dag.template <<EOF
 JOB $job $scratchdir/job
-VARS $job inputfile="$inputfile" inputfilepath="$inputfilepath" njob="$njob_replace"
+VARS $job inputfile="$inputfile" njob="$njob_replace"
 RETRY $job 3
 EOF
 done

@@ -33,6 +33,10 @@ if [[ $(hostname) == 'xd-login.opensciencegrid.org' ]]; then
   export LDFLAGS="-L${LIBRARY_PATH//:/ -L}"
 fi
 
+# read optional argument destdir (where to place package file)
+# default is the current directory
+destdir=${1-.}
+
 # create a temporary directory for installing files
 installdir=$(mktemp --directory)
 # and ensure it's cleaned on exit
@@ -82,5 +86,5 @@ done
 cp -v models/run-events $pkgdir
 
 # create tgz for distributing to each job
-tar --verbose --create --gzip --file $pkgname.tar.gz \
+tar --verbose --create --gzip --file $destdir/$pkgname.tar.gz \
   --directory $installdir $pkgname

@@ -21,6 +21,23 @@ timestamp="$(date +%Y%m%d_%H%M%S)"
 # gridftp destination for all events in this batch
 desturl="gsiftp://ntheoryfs01.phy.duke.edu/var/phy/project/nukeserv/$USER/hic-events/$batchlabel"
 
+# blacklist some hosts which systematically fail
+badhosts=(
+  'phys.uconn.edu'  # fails to load modules
+  'lonepeak.peaks'  # fails to load modules (in a different way)
+  'hpc.smu.edu'     # completes jobs but griftp transfer of results fails
+)
+# Create a regular expression to filter the condor "Machine" attribute.
+# Match any item of the badhosts array at the end of the string:
+#
+#  (badhost1|badhost2|...)$
+#
+# Replace '.' with '\.' to match literal periods.
+badhostsre() {
+  local IFS='|'
+  echo "(${badhosts[*]//\./\\.})$"
+}
+
 # change to project root directory, one level above this script
 # http://stackoverflow.com/a/246128
 cd "$(dirname "${BASH_SOURCE[0]}")"/..
@@ -51,7 +68,7 @@ x509userproxy = /tmp/x509up_u$(id --user)
 
 request_memory = 500M
 request_disk = 1G
-requirements = HAS_CVMFS_oasis_opensciencegrid_org
+requirements = HAS_CVMFS_oasis_opensciencegrid_org && !regexp("$(badhostsre)", Machine)
 rank = KFlops
 
 executable = $scratchdir/$exefile

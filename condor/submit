@@ -25,6 +25,7 @@ desturl="gsiftp://ntheoryfs01.phy.duke.edu/var/phy/project/nukeserv/$USER/hic-ev
 badhosts=(
   'phys.uconn.edu'  # fails to load modules
   'lonepeak.peaks'  # fails to load modules (in a different way)
+  'kingspeak.peaks' # same as lonepeaks
   'hpc.smu.edu'     # completes jobs but griftp transfer of results fails
 )
 # Create a regular expression to filter the condor "Machine" attribute.
@@ -67,7 +68,7 @@ x509userproxy = /tmp/x509up_u$(id --user)
 +ProjectName = "Duke-QGP"
 
 request_memory = 500M
-request_disk = 1G
+request_disk = 500M
 requirements = HAS_CVMFS_oasis_opensciencegrid_org && !regexp("$(badhostsre)", Machine)
 rank = KFlops
 
@@ -80,7 +81,7 @@ transfer_input_files = $scratchdir/$pkgfile, $inputfiledir/\$(inputfile)
 output = $scratchdir/stdouterr/\$(inputfile)/\$(njob).out
 error = $scratchdir/stdouterr/\$(inputfile)/\$(njob).err
 
-periodic_release = (HoldReasonCode =?= 13)
+periodic_release = (HoldReasonCode =?= 12) || (HoldReasonCode =?= 13)
 periodic_remove = (HoldReasonCode =?= 1) && (NumJobStarts >= 6)
 
 queue
@@ -97,7 +98,7 @@ for f in $inputfiles; do
   mkdir -p $scratchdir/stdouterr/$inputfile
 
   # write dag lines
-  job="${inputfile}_${njob_replace}"
+  job="${inputfile}/${njob_replace}"
   cat >> $scratchdir/dag.template <<EOF
 JOB $job $scratchdir/job
 VARS $job inputfile="$inputfile" njob="$njob_replace"
@@ -106,12 +107,15 @@ EOF
 done
 
 # create the actual condor dag file from the template
-for njob in $(seq -w 0 $(( jobsperinput - 1 ))); do
+echo 'writing dag file...'
+jobsperinput=$(( jobsperinput - 1 ))
+for njob in $(seq -w 0 $jobsperinput); do
   # progress indicator
   # (it can take a moment to generate the full dag file)
-  echo $njob
+  echo -ne "\r$njob / $jobsperinput"
   sed "s/${njob_replace}/${njob}/g" $scratchdir/dag.template >> $scratchdir/dag
 done
+echo -e "\ndone"
 
 # go!
-condor_submit_dag -maxidle 10000 $scratchdir/dag
+condor_submit_dag -maxidle 1000 $scratchdir/dag

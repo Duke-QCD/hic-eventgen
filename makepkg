@@ -12,7 +12,7 @@ if [[ $(hostname) == 'xd-login.opensciencegrid.org' ]]; then
   #  - hdf5 for trento
   #  - python and packages
   module purge
-  module load gcc cmake boost hdf5 python/3.4 all-pkgs
+  module load gcc cmake boost hdf5 python/3.5.2 all-pkgs
 
   # the modules set the standard environment variables CPATH and LIBRARY_PATH
   # set corresponding variables for cmake

@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# extra preparation when compiling on the OSG submit host
-if [[ $(hostname) == 'xd-login.opensciencegrid.org' ]]; then
+# extra preparation when compiling on OSG submit hosts
+if [[ $(hostname) =~ opensciencegrid.org|osgconnect.net ]]; then
   # load lmod
   source /cvmfs/oasis.opensciencegrid.org/osg/modules/lmod/current/init/bash
 

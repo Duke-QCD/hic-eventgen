@@ -16,7 +16,7 @@ jobsperinput=$2
 inputfiles=${@:3}
 
 # every batch needs a unique ID -- a timestamp works well
-timestamp="$(date +%Y%m%d_%H%M%S)"
+timestamp="$(date --utc +%Y%m%d_%H%M%S)"
 
 # gridftp destination for all events in this batch
 desturl="gsiftp://ntheoryfs01.phy.duke.edu/var/phy/project/nukeserv/$USER/hic-events/$batchlabel"

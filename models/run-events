@@ -175,7 +175,7 @@ def main():
         # create sampler surface object
         surface = frzout.Surface(x, sigma, v, pi=pi, Pi=Pi, ymax=2)
 
-        minsamples, maxsamples = 2, 100  # reasonable range for nsamples
+        minsamples, maxsamples = 10, 1000  # reasonable range for nsamples
         minparts = 10**5  # min number of particles to sample
         nparts = 0  # for tracking total number of sampled particles
 

@@ -4,6 +4,7 @@
 Runs several complete heavy-ion collision events:
 
   - initial condition (trento)
+  - free streaming
   - hydro (vishnew)
   - particlization / sampler (frzout)
   - hadronic afterburner (urqmd)
@@ -95,7 +96,7 @@ def main():
 
     # read free streaming time and enable for time > epsilon
     tau_fs = float(config.get('tau_fs', 0))
-    enable_fs = tau_fs > .001
+    enable_fs = tau_fs > 1e-6
 
     # create sampler HRG object (to be reused for all events)
     Tswitch = float(config.get('Tswitch', .15))
@@ -239,7 +240,7 @@ def main():
 
         phi_alice = phi[charged & (abs_eta < .8) & (.2 < pT) & (pT < 5.)]
         res['M'] = phi_alice.size
-        res['Qn'][:] = [np.exp(1j*n*phi_alice).sum() for n in range(1, 7)]
+        res['Qn'] = [np.exp(1j*n*phi_alice).sum() for n in range(1, 7)]
 
     results.tofile('results')
 

@@ -21,31 +21,22 @@ timestamp="$(date +%Y%m%d_%H%M%S)"
 # gridftp destination for all events in this batch
 desturl="gsiftp://ntheoryfs01.phy.duke.edu/var/phy/project/nukeserv/$USER/hic-events/$batchlabel"
 
-# blacklist some hosts which systematically fail
-badhosts=(
-  'phys.uconn.edu'  # fails to load modules
-  'lonepeak.peaks'  # fails to load modules (in a different way)
-  'kingspeak.peaks' # same as lonepeaks
-  'hpc.smu.edu'     # completes jobs but griftp transfer of results fails
-)
-# Create a regular expression to filter the condor "Machine" attribute.
-# Match any item of the badhosts array at the end of the string:
-#
-#  (badhost1|badhost2|...)$
-#
-# Replace '.' with '\.' to match literal periods.
-badhostsre() {
-  local IFS='|'
-  echo "(${badhosts[*]//\./\\.})$"
-}
+# create a "scratch" directory for all the condor files
+scratchdir="/local-scratch/$USER/condor/$batchlabel/$timestamp"
+mkdir -p $scratchdir
+
+# copy input files to scratch
+mkdir $scratchdir/inputfiles
+cp -v $inputfiles $scratchdir/inputfiles
+
+# create directories for job stdout and stderr files
+for f in $inputfiles; do
+  mkdir -p $scratchdir/stdouterr/$(basename $f)
+done
 
 # change to project root directory, one level above this script
 # http://stackoverflow.com/a/246128
 cd "$(dirname "${BASH_SOURCE[0]}")"/..
-
-# create a "scratch" directory for all the condor files
-scratchdir="/local-scratch/$USER/condor/$batchlabel/$timestamp"
-mkdir -p $scratchdir
 
 # make package, place in scratch directory
 pkgfile='hic-osg.tar.gz'
@@ -55,67 +46,65 @@ pkgfile='hic-osg.tar.gz'
 exefile='hic-wrapper'
 cp -v condor/$exefile $scratchdir
 
-# copy input files to scratch
-inputfiledir="$scratchdir/inputfiles"
-mkdir $inputfiledir
-cp -v $inputfiles $inputfiledir
+cd $scratchdir
 
-# Create a condor submit description file.  This is the "template" job file for
-# every job in this batch with several $(...) variables to be set by the dag.
-cat > $scratchdir/job <<EOF
+# Define job requirements:
+#  - All nodes must have oasis modules.
+#  - Avoid last several hosts; this prevents repeated failures on the same
+#    machines ("black holes").  See e.g.
+#    https://htcondor-wiki.cs.wisc.edu/index.cgi/wiki?p=AvoidingBlackHoles
+histlen=5
+requirements='HAS_CVMFS_oasis_opensciencegrid_org'
+for i in $(seq $(( histlen - 1 ))); do
+  requirements="$requirements && target.machine =!= MachineAttrMachine$i"
+done
+
+# Create the condor submit description file.  Some notes:
+#   - This job cluster runs each input file once.  Below, the dag runs the
+#     requested number of copies.
+#   - The "Machine" attribute is saved for avoiding black holes (see above).
+#   - Several trivial hold reasons are automatically released.
+#     See the table for "HoldReasonCode" at
+#     https://research.cs.wisc.edu/htcondor/manual/current/12_Appendix_A.html
+#   - Failed jobs are not removed but put back in the queue to be retried.
+cat > job <<EOF
 universe = vanilla
 x509userproxy = /tmp/x509up_u$(id --user)
 +ProjectName = "Duke-QGP"
 
+job_machine_attrs = Machine
+job_machine_attrs_history_length = $histlen
+requirements = $requirements
+
 request_memory = 500M
 request_disk = 500M
-requirements = HAS_CVMFS_oasis_opensciencegrid_org && !regexp("$(badhostsre)", Machine)
 rank = KFlops
 
-executable = $scratchdir/$exefile
-arguments = \$(inputfile) $desturl/\$(inputfile)/$timestamp/\$(njob)
+executable = $exefile
+input_file = \$BASENAME(input_file_path)
+arguments = \$(input_file) $desturl/\$(input_file)/$timestamp/\$(dag_node_name)
 
-transfer_input_files = $scratchdir/$pkgfile, $inputfiledir/\$(inputfile)
+transfer_input_files = $pkgfile, \$(input_file_path)
 +TransferOutput = ""
 
-output = $scratchdir/stdouterr/\$(inputfile)/\$(njob).out
-error = $scratchdir/stdouterr/\$(inputfile)/\$(njob).err
+output = stdouterr/\$(input_file)/\$(dag_node_name).out
+error = stdouterr/\$(input_file)/\$(dag_node_name).err
 
-periodic_release = (HoldReasonCode =?= 12) || (HoldReasonCode =?= 13)
-periodic_remove = (HoldReasonCode =?= 1) && (NumJobStarts >= 6)
+periodic_release = (HoldReasonCode == 12) || (HoldReasonCode == 13)
+on_exit_remove = (ExitBySignal == False) && (ExitCode == 0)
 
-queue
+queue input_file_path matching files inputfiles/*
 EOF
 
-# create a dag template with entries for each input file
-# and replacement strings for the job numbers
-njob_replace='{NJOB}'
-
-for f in $inputfiles; do
-  inputfile=$(basename $f)
-
-  # create directories for job stdout and stderr files
-  mkdir -p $scratchdir/stdouterr/$inputfile
-
-  # write dag lines
-  job="${inputfile}/${njob_replace}"
-  cat >> $scratchdir/dag.template <<EOF
-JOB $job $scratchdir/job
-VARS $job inputfile="$inputfile" njob="$njob_replace"
-RETRY $job 3
-EOF
+# Create a dag file to run the requested number of jobs for each input file.
+# This is possible without a dag but would overload the queue because all jobs
+# would be submitted at once.  Throttling with the -maxidle option prevents
+# overloading.
+echo -n 'writing dag file...'
+for n in $(seq -w 0 $(( jobsperinput - 1 ))); do
+  echo "JOB $n job" >> $scratchdir/dag
 done
-
-# create the actual condor dag file from the template
-echo 'writing dag file...'
-jobsperinput=$(( jobsperinput - 1 ))
-for njob in $(seq -w 0 $jobsperinput); do
-  # progress indicator
-  # (it can take a moment to generate the full dag file)
-  echo -ne "\r$njob / $jobsperinput"
-  sed "s/${njob_replace}/${njob}/g" $scratchdir/dag.template >> $scratchdir/dag
-done
-echo -e "\ndone"
+echo 'done'
 
 # go!
-condor_submit_dag -maxidle 1000 $scratchdir/dag
+condor_submit_dag -maxidle 1000 dag

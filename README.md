@@ -5,10 +5,15 @@ Primarily intended for generating events for Bayesian model-to-data comparison.
 
 ## Physics models
 
-The collision model is a standard hybrid hydro+cascade, similar to [iEBE](http://inspirehep.net/record/1319339) except for the initial conditions.
-Each model resides in its own repository; they are included here as submodules.
-See the `models` directory.
+The collision model consists of the following stages:
 
+- initial conditions (trento)
+- free streaming
+- viscous 2+1D hydro (vishnew)
+- particlization (frzout)
+- hadronic afterburner (UrQMD)
+
+Each model is included as a git submodule in the `models` directory.
 
 ## Usage
 
@@ -16,9 +21,9 @@ _Note: I designed this for my own personal use, and this readme is barely more t
 
 ### Building
 
-The workflow is designed to run on the OSG from the XSEDE submit host xd-login.opensciencegrid.org (but could be modified to run elsewhere).
+The workflow is primarily tested on the OSG XSEDE submit host xd-login.opensciencegrid.org, but it should work on other hosts e.g. OSG Connect.
 
-Clone the repository on `xd-login` with the `--recursive` option to acquire all submodules.
+Clone the repository with the `--recursive` option to acquire all submodules.
 
 Run `./makepkg` to build all the models and create the job package `hic-osg.tar.gz`.
 This package contains all files common to each job: run script, executables, data tables, etc.
@@ -31,13 +36,9 @@ The idea is to create a bunch of input files (e.g. for a set of design points) a
 Input files have a simple `key = value` syntax, like this:
 
     trento_args = <arguments that will be passed to trento>
-    vishnew_args = <arguments that will be passed to trento>
-
-The arguments are passed directly to the executables `trento` and `vishnew`.
-Here is a specific example:
-
-    trento_args = --normalization 120 --reduced-thickness 0 --fluctuation 1.5 --nucleon-width 0.45
-    vishnew_args = etas=0.08 etas_slope=0.85 visbulknorm=1.2 edec=0.24
+    tau_fs = <free streaming time in fm/c>
+    vishnew_args = <arguments that will be passed to vishnew>
+    Tswitch = <partclization temperature in GeV>
 
 ### Submitting jobs
 
@@ -45,8 +46,10 @@ The Python script `models/run-events` executes each job.
 It runs 10 events per job, meaning 10 Monte Carlo initial conditions and hydro events plus oversampling.
 The number of oversamples is determined adaptively so that each event produces roughly the same total number of particles.
 
-The results for each job are placed in a single HDF5 file `hic-osg/results.hdf` in the job working directory.
-The file contains initial conditions and particle data for all events and oversamples.
+For each event, several observables (particle multiplicities, flow Q-vectors, etc) are computed and saved to the raw binary file `<condor working directory>/hic-osg/results`.
+The binary data type is defined in `models/run-events` and must be fully specified when loading the files;
+the idea is to cat a set of results files together and then load it using e.g. `numpy.fromfile`.
+More discussion of the pros and cons of this format is in the comments of `run-events`.
 
 The shell script `condor/hic-wrapper` is the Condor executable.
 It loads necessary environment modules, calls `run-events`, and copies the results file to the final destination via GridFTP (note: this requires a grid certificate).
@@ -68,7 +71,3 @@ For example, I have a set of input files for running LHC events, and I want to r
 
 The `submit` script writes a long DAG file and submits it.
 The DAG will smoothly submit jobs to the queue and throttle the total number of idle jobs, so that essentially an arbitrary number of jobs can be submitted at once.
-
-### Data analysis
-
-See my [qm2015 repository](https://github.com/jbernhard/qm2015) for some example data analysis code and results.

@@ -129,10 +129,11 @@ def main():
         nevents, dtype=[
             ('initial_entropy', float_t),
             ('mult_factor', float_t),
+            ('nsamples', int_t),
             ('dNch_deta', float_t),
             ('dN_dy', [(s, float_t) for (s, _) in species]),
             ('mean_pT', [(s, float_t) for (s, _) in species]),
-            ('M', int_t),
+            ('M', float_t),
             ('Qn', complex_t, 6),
         ]
     )
@@ -204,11 +205,11 @@ def main():
                 if nparts >= minparts and nsamples >= minsamples:
                     break
 
-        print('nsamples =', nsamples)
-        print('nparts =', nparts)
-
         if nparts == 0:
+            print('no particles produced')
             continue
+
+        res['nsamples'] = nsamples
 
         # hadronic afterburner
         run_cmd('./afterburner initial.dat final.dat', cwd='urqmd-afterburner')
@@ -239,8 +240,11 @@ def main():
             res['mean_pT'][name] = (0. if N == 0 else pT[cut].mean())
 
         phi_alice = phi[charged & (abs_eta < .8) & (.2 < pT) & (pT < 5.)]
-        res['M'] = phi_alice.size
-        res['Qn'] = [np.exp(1j*n*phi_alice).sum() for n in range(1, 7)]
+        res['M'] = phi_alice.size / nsamples
+        res['Qn'] = [
+            np.exp(1j*n*phi_alice).sum() / nsamples
+            for n in range(1, 7)
+        ]
 
     results.tofile('results')
 

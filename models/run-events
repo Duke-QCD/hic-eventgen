@@ -328,7 +328,7 @@ def main():
         try:
             run_events(args, f)
         except KeyboardInterrupt:
-            pass
+            print('interrupt or signal, exiting')
 
 
 if __name__ == "__main__":

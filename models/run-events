@@ -170,8 +170,9 @@ def run_events(args, results_file):
     int_t = '<i8'
     complex_t = '<c16'
 
-    # results data type
-    dtype = np.dtype([
+    # results "array" (one element)
+    # to be overwritten for each event
+    results = np.empty((), dtype=[
         ('initial_entropy', float_t),
         ('mult_factor', float_t),
         ('nsamples', int_t),
@@ -182,13 +183,13 @@ def run_events(args, results_file):
         ('Qn', complex_t, 6),
     ])
 
-    def run_single_event(ic, results):
+    def run_single_event(ic):
         """
         Run the initial condition event contained in HDF5 dataset object `ic`
-        and save observables to `results`, which must be a np.array of size 1
-        and the above dtype initialized with zeros.
+        and save observables to `results`.
 
         """
+        results.fill(0)
         results['initial_entropy'] = ic.attrs['mult']
 
         sd = np.array(ic)
@@ -292,8 +293,7 @@ def run_events(args, results_file):
 
     # run each initial condition event and save results to file
     for ic in initial_conditions:
-        results = np.zeros((), dtype)
-        run_single_event(ic, results)
+        run_single_event(ic)
         results_file.write(results.tobytes())
 
 

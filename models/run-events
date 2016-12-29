@@ -192,12 +192,13 @@ def run_events(args, results_file):
         results.fill(0)
         results['initial_entropy'] = ic.attrs['mult']
 
-        sd = np.array(ic)
+        # read initial density array from dataset
+        density = np.array(ic)
 
         # write initial file[s] for vishnew
         if enable_fs:
             # free stream initial condition
-            fs = freestream.FreeStreamer(sd, grid_max, args.tau_fs)
+            fs = freestream.FreeStreamer(density, grid_max, args.tau_fs)
 
             e = fs.energy_density()
             e_above = e[e > eswitch].sum()
@@ -210,7 +211,7 @@ def run_events(args, results_file):
                 np.savetxt('pi{}{}.dat'.format(*ij), fs.shear_tensor(*ij))
         else:
             # skip free streaming, use initial condition as entropy density
-            np.savetxt('sd.dat', sd)
+            np.savetxt('sd.dat', density)
 
         # hydro
         run_cmd('vishnew', *vishnew_args)

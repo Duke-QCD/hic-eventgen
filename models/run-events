@@ -14,14 +14,6 @@ import freestream
 import frzout
 
 
-def raise_keyboard_interrupt(*args, **kwargs):
-    """
-    To be used as a signal handler.
-
-    """
-    raise KeyboardInterrupt
-
-
 def run_cmd(*args, check=True, **kwargs):
     """
     Run a subprocess, concatenating argument strings together.
@@ -322,7 +314,7 @@ def main():
     os.makedirs(os.path.dirname(args.results), exist_ok=True)
 
     # translate SIGTERM to KeyboardInterrupt
-    signal.signal(signal.SIGTERM, raise_keyboard_interrupt)
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
 
     with open(args.results, 'wb') as f:
         try:

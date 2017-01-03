@@ -320,6 +320,11 @@ def main():
         try:
             run_events(args, f)
         except KeyboardInterrupt:
+            # after catching the initial SIGTERM or interrupt, ignore them for
+            # the rest of the program -- this ensures everything will exit
+            # gracefully in case of additional signals (short of SIGKILL)
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
             print('interrupt or signal, exiting')
 
 

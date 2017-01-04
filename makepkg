@@ -83,7 +83,7 @@ for i in models/*/; do
 done
 
 # install the event runner script
-cp -v models/run-events $pkgdir
+install -v models/run-events $pkgdir/bin
 
 # create tgz for distributing to each job
 tar --verbose --create --gzip --file $destdir/$pkgname.tar.gz \

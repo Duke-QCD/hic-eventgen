@@ -318,10 +318,23 @@ def run_events(args, results_file):
         results['M'] = phi_alice.size
         results['Qn'] = [np.exp(1j*n*phi_alice).sum() for n in range(1, 7)]
 
+    nfail = 0
+
     # run each initial condition event and save results to file
     for n, ic in enumerate(initial_conditions):
         logging.info('starting event %d', n)
-        run_single_event(ic)
+
+        try:
+            run_single_event(ic)
+        except Exception:
+            logging.exception('event %d failed', n)
+            nfail += 1
+            if nfail > 3 and nfail/n > .5:
+                logging.critical('too many failures, stopping events')
+                break
+            logging.warning('continuing to next event')
+            continue
+
         results_file.write(results.tobytes())
         logging.info('event %d completed successfully', n)
 

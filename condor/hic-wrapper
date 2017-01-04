@@ -16,7 +16,7 @@ pkgname='hic-osg'
 tar xzf $pkgname.tar.gz
 
 # set environment variables
-export PATH="$(pwd)/$pkgname/bin:$PATH"
+export PATH="$(pwd)/$pkgname/bin:$PATH"  # this also activates the python venv
 export XDG_DATA_HOME="$(pwd)/$pkgname/share"
 
 # go!

@@ -37,8 +37,6 @@ import subprocess
 import numpy as np
 import h5py
 
-# load libraries distributed with hic-osg
-sys.path.insert(1, 'lib/python')
 import freestream
 import frzout
 

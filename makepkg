@@ -45,6 +45,11 @@ trap "rm -r $installdir" EXIT
 pkgname='hic-osg'
 pkgdir="$installdir/$pkgname"
 
+# create python virtual environment
+python3 -m venv --system-site-packages $pkgdir
+rm $pkgdir/bin/activate*  # unecessary venv scripts
+export PATH="$pkgdir/bin:$PATH"  # prepend venv to path
+
 # build each model
 for i in models/*/; do
   pushd $i
@@ -56,24 +61,17 @@ for i in models/*/; do
       cd build
     else
       mkdir build && cd build
-      # disable install prefix by setting it to "/"
-      # the actual install location will be set by DESTDIR later
       cmake \
         -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX="/" \
+        -DCMAKE_INSTALL_PREFIX=/ \
         .. || exit 1
     fi
 
     # compile and install to the temporary directory
     make --jobs=$(nproc) DESTDIR=$pkgdir install || exit 1
   elif [[ -f setup.py ]]; then
-    # install python packages with custom scheme
-    python3 setup.py install \
-      --no-compile \
-      --root=$pkgdir \
-      --install-lib=lib/python \
-      --install-scripts=bin \
-      || exit 1
+    # install python packages (will install to venv)
+    python3 setup.py install --no-compile || exit 1
   else
     echo "unknown build system for model $i"
     exit 1

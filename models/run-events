@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
 import argparse
+import datetime
 from itertools import chain, repeat
+import logging
 import os
 import signal
 import subprocess
@@ -14,16 +16,32 @@ import freestream
 import frzout
 
 
-def run_cmd(*args, check=True, **kwargs):
+def run_cmd(*args):
     """
-    Run a subprocess, concatenating argument strings together.
+    Run and log a subprocess.
 
     """
-    print(*args, flush=True)  # flush stdout to retain output order
-    subprocess.run(
-        list(chain.from_iterable(a.split() for a in args)),
-        check=check, **kwargs
-    )
+    cmd = ' '.join(args)
+    logging.info('running command: %s', cmd)
+
+    try:
+        proc = subprocess.run(
+            cmd.split(), check=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            universal_newlines=True
+        )
+    except subprocess.CalledProcessError as e:
+        logging.error(
+            'command failed with status %d:\n%s',
+            e.returncode, e.output.strip('\n')
+        )
+        raise
+    else:
+        logging.debug(
+            'command completed successfully:\n%s',
+            proc.stdout.strip('\n')
+        )
+        return proc
 
 
 def read_text_file(filename):
@@ -75,6 +93,15 @@ parser.add_argument(
 parser.add_argument(
     '--workdir', default='.', type=os.path.abspath,
     help='working directory (default: the current directory)'
+)
+parser.add_argument(
+    '--logfile', type=os.path.abspath,
+    help='log file (default: stdout)'
+)
+parser.add_argument(
+    '--loglevel', choices=['debug', 'info', 'warning', 'error', 'critical'],
+    default='info',
+    help='log level (default: %(default)s)'
 )
 parser.add_argument(
     '--trento-args', default='Pb Pb',
@@ -189,7 +216,10 @@ def run_events(args, results_file):
 
         # write initial file[s] for vishnew
         if enable_fs:
-            # free stream initial condition
+            logging.info(
+                'free streaming initial condition for %.3f fm',
+                args.tau_fs
+            )
             fs = freestream.FreeStreamer(density, grid_max, args.tau_fs)
 
             e = fs.energy_density()
@@ -202,7 +232,7 @@ def run_events(args, results_file):
             for ij in [(1, 1), (1, 2), (2, 2)]:
                 np.savetxt('pi{}{}.dat'.format(*ij), fs.shear_tensor(*ij))
         else:
-            # skip free streaming, use initial condition as entropy density
+            logging.info('free streaming disabled')
             np.savetxt('sd.dat', density)
 
         # hydro
@@ -214,7 +244,7 @@ def run_events(args, results_file):
         # end event if the surface is empty -- this occurs in ultra-peripheral
         # events where the initial condition doesn't exceed Tswitch
         if surface_data.size == 0:
-            print('empty hypersurface')
+            logging.info('empty surface, ending event')
             return
 
         # unpack surface_data columns:
@@ -233,6 +263,8 @@ def run_events(args, results_file):
         minparts = 10**5  # min number of particles to sample
         nparts = 0  # for tracking total number of sampled particles
 
+        logging.info('sampling surface with frzout')
+
         # sample particles and write to file
         with open('particles_in.dat', 'w') as f:
             for nsamples in range(1, maxsamples + 1):
@@ -246,8 +278,10 @@ def run_events(args, results_file):
                 if nparts >= minparts and nsamples >= minsamples:
                     break
 
+        logging.info('produced %d particles in %d samples', nparts, nsamples)
+
         if nparts == 0:
-            print('no particles produced')
+            logging.info('no particles produced, ending event')
             return
 
         results['nsamples'] = nsamples
@@ -264,7 +298,7 @@ def run_events(args, results_file):
             )
         )
 
-        # compute observables
+        logging.info('computing observables')
         charged = (charge != 0)
         abs_eta = np.fabs(eta)
 
@@ -285,14 +319,17 @@ def run_events(args, results_file):
         results['Qn'] = [np.exp(1j*n*phi_alice).sum() for n in range(1, 7)]
 
     # run each initial condition event and save results to file
-    for ic in initial_conditions:
+    for n, ic in enumerate(initial_conditions):
+        logging.info('starting event %d', n)
         run_single_event(ic)
         results_file.write(results.tobytes())
+        logging.info('event %d completed successfully', n)
 
 
 def main():
     args = parser.parse_args()
 
+    # must handle rank before setting up logging since it affects the log file
     if args.rankvar:
         rank = os.getenv(args.rankvar)
         if rank is None:
@@ -305,27 +342,56 @@ def main():
         if args.rankfmt:
             rank = args.rankfmt.format(int(rank))
 
-        args.workdir = os.path.join(args.workdir, rank)
-        args.results = os.path.join(args.results, rank)
+        argdict = vars(args)
+
+        # append rank to path arguments, e.g.:
+        #   /path/to/output.log  ->  /path/to/output/<rank>.log
+        for arg in ['workdir', 'results', 'logfile']:
+            if argdict[arg] is not None:
+                root, ext = os.path.splitext(argdict[arg])
+                argdict[arg] = os.path.join(root, rank) + ext
 
     os.makedirs(args.workdir, exist_ok=True)
     os.chdir(args.workdir)
 
     os.makedirs(os.path.dirname(args.results), exist_ok=True)
 
+    if args.logfile is None:
+        logfile_kwargs = dict(stream=sys.stdout)
+    else:
+        logfile_kwargs = dict(filename=args.logfile, filemode='w')
+        os.makedirs(os.path.dirname(args.logfile), exist_ok=True)
+
+    logging.basicConfig(
+        level=getattr(logging, args.loglevel.upper()),
+        format='[%(levelname)s@%(relativeCreated)d] %(message)s',
+        **logfile_kwargs
+    )
+
+    start = datetime.datetime.now()
+    logging.info('started at %s', start)
+    logging.info('arguments: %r', args)
+
     # translate SIGTERM to KeyboardInterrupt
     signal.signal(signal.SIGTERM, signal.default_int_handler)
+    logging.debug('set SIGTERM handler')
 
     with open(args.results, 'wb') as f:
         try:
             run_events(args, f)
         except KeyboardInterrupt:
-            # after catching the initial SIGTERM or interrupt, ignore them for
-            # the rest of the program -- this ensures everything will exit
-            # gracefully in case of additional signals (short of SIGKILL)
+            # after catching the initial SIGTERM or interrupt, ignore them
+            # during shutdown -- this ensures everything will exit gracefully
+            # in case of additional signals (short of SIGKILL)
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
             signal.signal(signal.SIGINT, signal.SIG_IGN)
-            print('interrupt or signal, exiting')
+            logging.info(
+                'interrupt or signal at %s, cleaning up...',
+                datetime.datetime.now()
+            )
+
+    end = datetime.datetime.now()
+    logging.info('finished at %s, %s elapsed', end, end - start)
 
 
 if __name__ == "__main__":

@@ -45,11 +45,6 @@ trap "rm -r $installdir" EXIT
 pkgname='hic-osg'
 pkgdir="$installdir/$pkgname"
 
-# create python virtual environment
-python3 -m venv --system-site-packages $pkgdir
-rm $pkgdir/bin/activate*  # unecessary venv scripts
-export PATH="$pkgdir/bin:$PATH"  # prepend venv to path
-
 # build each model
 for i in models/*/; do
   pushd $i
@@ -70,8 +65,17 @@ for i in models/*/; do
     # compile and install to the temporary directory
     make --jobs=$(nproc) DESTDIR=$pkgdir install || exit 1
   elif [[ -f setup.py ]]; then
-    # install python packages (will install to venv)
-    python3 setup.py install --no-compile || exit 1
+    # install python packages
+    python3 setup.py install \
+      --no-compile \
+      --root=$pkgdir \
+      --prefix= \
+      || exit 1
+
+    # let python find packages in the temporary directory -- this is necessary
+    # because generating the eos table for vishnew requires frzout (note frzout
+    # installs first because it's alphabetically ahead)
+    export PYTHONPATH="$(echo $pkgdir/lib/python*/site-packages)"
   else
     echo "unknown build system for model $i"
     exit 1

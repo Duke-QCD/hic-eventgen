@@ -1,5 +1,9 @@
 #!/bin/bash
 
+export CFLAGS='-ffast-math'
+export FFLAGS=$CFLAGS
+export CXXFLAGS=$CFLAGS
+
 # extra preparation when compiling on OSG submit hosts
 if [[ $(hostname) =~ opensciencegrid.org|osgconnect.net ]]; then
   # load lmod
@@ -19,10 +23,11 @@ if [[ $(hostname) =~ opensciencegrid.org|osgconnect.net ]]; then
   export CMAKE_INCLUDE_PATH=$CPATH
   export CMAKE_LIBRARY_PATH=$LIBRARY_PATH
 
-  # set compiler flags
-  export CXXFLAGS="-march=x86-64 -mtune=intel"
-  export CFLAGS="$CXXFLAGS -Wno-declaration-after-statement"
-  export FFLAGS="$CXXFLAGS"
+  # set compiler architecture flags
+  arch_flags='-march=x86-64 -mtune=intel'
+  export CFLAGS="$arch_flags $CFLAGS"
+  export FFLAGS="$arch_flags $FFLAGS"
+  export CXXFLAGS="$arch_flags $CXXFLAGS"
 
   # explicitly set fortran compiler to override cmake default
   export FC='gfortran'

@@ -1,38 +1,11 @@
 #!/usr/bin/env python3
 
-"""
-Runs several complete heavy-ion collision events:
-
-  - initial condition (trento)
-  - free streaming
-  - hydro (vishnew)
-  - particlization / sampler (frzout)
-  - hadronic afterburner (urqmd)
-
-If an argument is passed, it is read as a configuration file with simple
-key = value syntax and stored in the 'config' dict.  Values are then accessed
-with 'config.get()' and hence all have reasonable defaults.
-
-For each event, computes observables (multiplicities, mean transverse momenta,
-flow vectors, etc) and saves them in raw binary file 'results', which may be
-read by np.fromfile() using the same dtype as the 'results' array.
-
-Some advantages of this format:
-
-  - speed and file size (zero overhead)
-  - files may be concatened together
-  - easy I/O in numpy (fromfile/tofile)
-
-A disadvantage:
-
-  - no metadata is saved, so the precise data type must be known and fully
-    specified or the files are nonsense
-
-"""
-
-from itertools import chain
-import sys
+import argparse
+from itertools import chain, repeat
+import os
+import signal
 import subprocess
+import sys
 
 import numpy as np
 import h5py
@@ -41,15 +14,23 @@ import freestream
 import frzout
 
 
-def run_cmd(*args, **kwargs):
+def raise_keyboard_interrupt(*args, **kwargs):
+    """
+    To be used as a signal handler.
+
+    """
+    raise KeyboardInterrupt
+
+
+def run_cmd(*args, check=True, **kwargs):
     """
     Run a subprocess, concatenating argument strings together.
 
     """
     print(*args, flush=True)  # flush stdout to retain output order
-    subprocess.check_call(
+    subprocess.run(
         list(chain.from_iterable(a.split() for a in args)),
-        **kwargs
+        check=check, **kwargs
     )
 
 
@@ -63,48 +44,111 @@ def read_text_file(filename):
         return [l.split() for l in f if not l.startswith(b'#')]
 
 
-def main():
-    # parse config file
-    if len(sys.argv) == 2:
-        with open(sys.argv[1], 'r') as f:
-            config = dict(
-                (i.strip() for i in l.split('=', maxsplit=1))
-                for l in f
-            )
-    else:
-        config = {}
+class Parser(argparse.ArgumentParser):
+    """
+    ArgumentParser that parses files with 'key = value' lines.
 
-    nevents = 10
+    """
+    def __init__(self, *args, fromfile_prefix_chars='@', **kwargs):
+        super().__init__(
+            *args, fromfile_prefix_chars=fromfile_prefix_chars, **kwargs
+        )
+
+    def convert_arg_line_to_args(self, arg_line):
+        # split each line on = and prepend prefix chars to first arg so it is
+        # parsed as a long option
+        args = [i.strip() for i in arg_line.split('=', maxsplit=1)]
+        args[0] = 2*self.prefix_chars[0] + args[0]
+        return args
+
+
+parser = Parser(description='run heavy-ion collision events')
+
+parser.add_argument(
+    'results', type=os.path.abspath,
+    help='results output file'
+)
+parser.add_argument(
+    '--nevents', type=int,
+    help='number of events to run (default: run until interrupted)'
+)
+parser.add_argument(
+    '--rankvar',
+    help='environment variable containing process rank'
+)
+parser.add_argument(
+    '--workdir', default='.', type=os.path.abspath,
+    help='working directory (default: the current directory)'
+)
+parser.add_argument(
+    '--trento-args', default='Pb Pb',
+    help="arguments passed to trento (default: '%(default)s')"
+)
+parser.add_argument(
+    '--tau-fs', type=float,
+    help='free streaming time [fm] (default: no free streaming)'
+)
+parser.add_argument(
+    '--vishnew-args', default='',
+    help='arguments passed to vishnew (default: empty)'
+)
+parser.add_argument(
+    '--Tswitch', type=float, default=.150,
+    help='particlization temperature [GeV] (default: %(default).3f GeV)'
+)
+
+
+def run_events(args, results_file):
+    """
+    Run events as determined by user input:
+
+        - Read options from `args`, as returned by `parser.parse_args()`.
+        - Write results to binary file object `results_file`.
+
+    """
     grid_step = 0.1
     grid_max = 13.05
 
-    # run trento and yield initial entropy density arrays
-    def initial_conditions(initial_file='initial.hdf'):
+    def _initial_conditions(nevents=10, initial_file='initial.hdf'):
+        """
+        Run trento and yield HDF5 datasets.
+
+        """
+        try:
+            os.remove(initial_file)
+        except FileNotFoundError:
+            pass
+
         run_cmd(
-            'trento Pb Pb', str(nevents),
-            '--cross-section 6.4',
+            'trento',
+            '--number-events {}'.format(nevents),
             '--grid-step {} --grid-max {}'.format(grid_step, grid_max),
             '--output', initial_file,
-            config.get('trento_args', '')
+            args.trento_args
         )
 
         with h5py.File(initial_file, 'r') as f:
-            for dset in f.values():
-                yield np.array(dset)
+            yield from f.values()
 
-    # read free streaming time and enable for time > epsilon
-    tau_fs = float(config.get('tau_fs', 0))
-    enable_fs = tau_fs > 1e-6
+    # if nevents was specified, generate that number of initial conditions
+    # otherwise generate indefinitely
+    initial_conditions = (
+        chain.from_iterable(_initial_conditions() for _ in repeat(None))
+        if args.nevents is None else
+        _initial_conditions(args.nevents)
+    )
+
+    # enable free streaming if time is set
+    enable_fs = args.tau_fs is not None
 
     # create sampler HRG object (to be reused for all events)
-    Tswitch = float(config.get('Tswitch', .15))
-    hrg = frzout.HRG(Tswitch, species='urqmd', res_width=True)
+    hrg = frzout.HRG(args.Tswitch, species='urqmd', res_width=True)
     eswitch = hrg.energy_density()
 
     # append switching energy density to vishnew arguments
     vishnew_args = [
-        config.get('vishnew_args', ''),
-        'initialuread=1 iein=0 t0={}'.format(tau_fs) if enable_fs else
+        args.vishnew_args,
+        'initialuread=1 iein=0 t0={}'.format(args.tau_fs) if enable_fs else
         'initialuread=0 iein=1',
         'edec={}'.format(eswitch)
     ]
@@ -122,57 +166,58 @@ def main():
     int_t = '<i8'
     complex_t = '<c16'
 
-    # allocate results array (see docstring at top of file)
-    results = np.zeros(
-        nevents, dtype=[
-            ('initial_entropy', float_t),
-            ('mult_factor', float_t),
-            ('nsamples', int_t),
-            ('dNch_deta', float_t),
-            ('dN_dy', [(s, float_t) for (s, _) in species]),
-            ('mean_pT', [(s, float_t) for (s, _) in species]),
-            ('M', int_t),
-            ('Qn', complex_t, 6),
-        ]
-    )
+    # results data type
+    dtype = np.dtype([
+        ('initial_entropy', float_t),
+        ('mult_factor', float_t),
+        ('nsamples', int_t),
+        ('dNch_deta', float_t),
+        ('dN_dy', [(s, float_t) for (s, _) in species]),
+        ('mean_pT', [(s, float_t) for (s, _) in species]),
+        ('M', int_t),
+        ('Qn', complex_t, 6),
+    ])
 
-    # run each event
-    for ic, res in zip(initial_conditions(), results):
-        res['initial_entropy'] = grid_step**2 * ic.sum()
+    def run_single_event(ic, results):
+        """
+        Run the initial condition event contained in HDF5 dataset object `ic`
+        and save observables to `results`, which must be a np.array of size 1
+        and the above dtype initialized with zeros.
+
+        """
+        results['initial_entropy'] = ic.attrs['mult']
+
+        sd = np.array(ic)
 
         # write initial file[s] for vishnew
         if enable_fs:
             # free stream initial condition
-            fs = freestream.FreeStreamer(ic, grid_max, tau_fs)
+            fs = freestream.FreeStreamer(sd, grid_max, args.tau_fs)
 
             e = fs.energy_density()
             e_above = e[e > eswitch].sum()
-            res['mult_factor'] = e.sum()/e_above if e_above > 0 else 1
+            results['mult_factor'] = e.sum()/e_above if e_above > 0 else 1
 
             np.savetxt('ed.dat', e)
             for i in [1, 2]:
                 np.savetxt('u{}.dat'.format(i), fs.flow_velocity(i))
             for ij in [(1, 1), (1, 2), (2, 2)]:
-                np.savetxt(
-                    'pi{}{}.dat'.format(*ij), fs.shear_tensor(*ij))
+                np.savetxt('pi{}{}.dat'.format(*ij), fs.shear_tensor(*ij))
         else:
             # skip free streaming, use initial condition as entropy density
-            np.savetxt('sd.dat', ic)
+            np.savetxt('sd.dat', sd)
 
         # hydro
         run_cmd('vishnew', *vishnew_args)
 
         # read freeze-out surface data
-        surface_data = np.array(
-            read_text_file('surface.dat'),
-            dtype=float
-        )
+        surface_data = np.array(read_text_file('surface.dat'), dtype=float)
 
         # end event if the surface is empty -- this occurs in ultra-peripheral
         # events where the initial condition doesn't exceed Tswitch
         if surface_data.size == 0:
             print('empty hypersurface')
-            continue
+            return
 
         # unpack surface_data columns:
         #   0    1  2  3         4         5         6    7
@@ -205,9 +250,9 @@ def main():
 
         if nparts == 0:
             print('no particles produced')
-            continue
+            return
 
-        res['nsamples'] = nsamples
+        results['nsamples'] = nsamples
 
         # hadronic afterburner
         run_cmd('afterburner particles_in.dat particles_out.dat')
@@ -225,7 +270,7 @@ def main():
         charged = (charge != 0)
         abs_eta = np.fabs(eta)
 
-        res['dNch_deta'] = \
+        results['dNch_deta'] = \
             np.count_nonzero(charged & (abs_eta < .5)) / nsamples
 
         abs_ID = np.abs(ID)
@@ -234,14 +279,48 @@ def main():
         for name, i in species:
             cut = (abs_ID == i) & midrapidity
             N = np.count_nonzero(cut)
-            res['dN_dy'][name] = N / nsamples
-            res['mean_pT'][name] = (0. if N == 0 else pT[cut].mean())
+            results['dN_dy'][name] = N / nsamples
+            results['mean_pT'][name] = (0. if N == 0 else pT[cut].mean())
 
         phi_alice = phi[charged & (abs_eta < .8) & (.2 < pT) & (pT < 5.)]
-        res['M'] = phi_alice.size
-        res['Qn'] = [np.exp(1j*n*phi_alice).sum() for n in range(1, 7)]
+        results['M'] = phi_alice.size
+        results['Qn'] = [np.exp(1j*n*phi_alice).sum() for n in range(1, 7)]
 
-    results.tofile('results')
+    # run each initial condition event and save results to file
+    for ic in initial_conditions:
+        results = np.zeros((), dtype)
+        run_single_event(ic, results)
+        results_file.write(results.tobytes())
+
+
+def main():
+    args = parser.parse_args()
+
+    if args.rankvar:
+        rank = os.getenv(args.rankvar)
+        if rank is None:
+            print(
+                'rank variable {} is not set'.format(args.rankvar),
+                file=sys.stderr
+            )
+            sys.exit(1)
+
+        args.workdir = os.path.join(args.workdir, rank)
+        args.results = os.path.join(args.results, rank)
+
+    os.makedirs(args.workdir, exist_ok=True)
+    os.chdir(args.workdir)
+
+    os.makedirs(os.path.dirname(args.results), exist_ok=True)
+
+    # translate SIGTERM to KeyboardInterrupt
+    signal.signal(signal.SIGTERM, raise_keyboard_interrupt)
+
+    with open(args.results, 'wb') as f:
+        try:
+            run_events(args, f)
+        except KeyboardInterrupt:
+            pass
 
 
 if __name__ == "__main__":

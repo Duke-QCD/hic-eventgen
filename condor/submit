@@ -22,7 +22,7 @@ timestamp="$(date --utc +%Y%m%d_%H%M%S)"
 desturl="gsiftp://ntheoryfs01.phy.duke.edu/var/phy/project/nukeserv/$USER/hic-events/$batchlabel"
 
 # create a "scratch" directory for all the condor files
-scratchdir="/local-scratch/$USER/condor/$batchlabel/$timestamp"
+scratchdir="/local-scratch/$USER/condor/${timestamp}_${batchlabel//\//_}"
 mkdir -p $scratchdir
 
 # copy input files to scratch

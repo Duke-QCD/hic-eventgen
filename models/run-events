@@ -79,6 +79,10 @@ parser.add_argument(
     help='results output file'
 )
 parser.add_argument(
+    '--buffering', type=int, default=0,
+    help='results file buffer size'
+)
+parser.add_argument(
     '--nevents', type=int,
     help='number of events to run (default: run until interrupted)'
 )
@@ -390,7 +394,7 @@ def main():
     signal.signal(signal.SIGTERM, signal.default_int_handler)
     logging.debug('set SIGTERM handler')
 
-    with open(args.results, 'wb') as f:
+    with open(args.results, 'wb', buffering=args.buffering) as f:
         try:
             run_events(args, f)
         except KeyboardInterrupt:

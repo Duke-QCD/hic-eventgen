@@ -9,7 +9,7 @@ desturl=$2
 
 # load necessary modules
 source /cvmfs/oasis.opensciencegrid.org/osg/modules/lmod/current/init/bash
-module load python/3.5.2 all-pkgs gcc/6.2.0 boost hdf5 || exit 1
+module load python/3.5.2 all-pkgs gcc/6.2.0 boost/1.62.0-cxx11 hdf5/1.8.13-cxx11 || exit 1
 
 # unpack package
 pkgname='hic-osg'

@@ -380,6 +380,7 @@ def main():
         format='[%(levelname)s@%(relativeCreated)d] %(message)s',
         **logfile_kwargs
     )
+    logging.captureWarnings(True)
 
     start = datetime.datetime.now()
     logging.info('started at %s', start)

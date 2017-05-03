@@ -112,8 +112,8 @@ parser.add_argument(
     help="arguments passed to trento (default: '%(default)s')"
 )
 parser.add_argument(
-    '--tau-fs', type=float,
-    help='free streaming time [fm] (default: no free streaming)'
+    '--tau-fs', type=float, default=.5,
+    help='free streaming time [fm] (default: %(default)s fm)'
 )
 parser.add_argument(
     '--vishnew-args', default='',
@@ -165,9 +165,6 @@ def run_events(args, results_file):
         _initial_conditions(args.nevents)
     )
 
-    # enable free streaming if time is set
-    enable_fs = args.tau_fs is not None
-
     # create sampler HRG object (to be reused for all events)
     hrg = frzout.HRG(args.Tswitch, species='urqmd', res_width=True)
     eswitch = hrg.energy_density()
@@ -175,8 +172,7 @@ def run_events(args, results_file):
     # append switching energy density to vishnew arguments
     vishnew_args = [
         args.vishnew_args,
-        'initialuread=1 iein=0 t0={}'.format(args.tau_fs) if enable_fs else
-        'initialuread=0 iein=1',
+        'initialuread=1 iein=0 t0={}'.format(args.tau_fs),
         'edec={}'.format(eswitch)
     ]
 
@@ -218,26 +214,22 @@ def run_events(args, results_file):
         # read initial density array from dataset
         density = np.array(ic)
 
+        logging.info(
+            'free streaming initial condition for %.3f fm',
+            args.tau_fs
+        )
+        fs = freestream.FreeStreamer(density, grid_max, args.tau_fs)
+
+        e = fs.energy_density()
+        e_above = e[e > eswitch].sum()
+        results['mult_factor'] = e.sum()/e_above if e_above > 0 else 1
+
         # write initial file[s] for vishnew
-        if enable_fs:
-            logging.info(
-                'free streaming initial condition for %.3f fm',
-                args.tau_fs
-            )
-            fs = freestream.FreeStreamer(density, grid_max, args.tau_fs)
-
-            e = fs.energy_density()
-            e_above = e[e > eswitch].sum()
-            results['mult_factor'] = e.sum()/e_above if e_above > 0 else 1
-
-            np.savetxt('ed.dat', e)
-            for i in [1, 2]:
-                np.savetxt('u{}.dat'.format(i), fs.flow_velocity(i))
-            for ij in [(1, 1), (1, 2), (2, 2)]:
-                np.savetxt('pi{}{}.dat'.format(*ij), fs.shear_tensor(*ij))
-        else:
-            logging.info('free streaming disabled')
-            np.savetxt('sd.dat', density)
+        np.savetxt('ed.dat', e)
+        for i in [1, 2]:
+            np.savetxt('u{}.dat'.format(i), fs.flow_velocity(i))
+        for ij in [(1, 1), (1, 2), (2, 2)]:
+            np.savetxt('pi{}{}.dat'.format(*ij), fs.shear_tensor(*ij))
 
         # hydro
         run_cmd('vishnew', *vishnew_args)

@@ -141,6 +141,8 @@ def run_events(args, results_file):
         - Read options from `args`, as returned by `parser.parse_args()`.
         - Write results to binary file object `results_file`.
 
+    Return True if at least one event completed successfully, otherwise False.
+
     """
     grid_step = .15*args.nucleon_width
     grid_n = math.ceil(2*15/grid_step)
@@ -395,7 +397,7 @@ def run_events(args, results_file):
     nfail = 0
 
     # run each initial condition event and save results to file
-    for n, ic in enumerate(initial_conditions):
+    for n, ic in enumerate(initial_conditions, start=1):
         logging.info('starting event %d', n)
 
         try:
@@ -413,6 +415,8 @@ def run_events(args, results_file):
 
         results_file.write(results.tobytes())
         logging.info('event %d completed successfully', n)
+
+    return n > nfail
 
 
 def main():
@@ -468,13 +472,14 @@ def main():
 
     with open(args.results, 'wb', buffering=args.buffering) as f:
         try:
-            run_events(args, f)
+            status = run_events(args, f)
         except KeyboardInterrupt:
             # after catching the initial SIGTERM or interrupt, ignore them
             # during shutdown -- this ensures everything will exit gracefully
             # in case of additional signals (short of SIGKILL)
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
             signal.signal(signal.SIGINT, signal.SIG_IGN)
+            status = True
             logging.info(
                 'interrupt or signal at %s, cleaning up...',
                 datetime.datetime.now()
@@ -482,6 +487,9 @@ def main():
 
     end = datetime.datetime.now()
     logging.info('finished at %s, %s elapsed', end, end - start)
+
+    if not status:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

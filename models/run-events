@@ -349,7 +349,7 @@ def run_events(args, results_file):
                 nparts += parts.size
                 print('#', parts.size, file=f)
                 for p in parts:
-                    print(p['ID'], *chain(p['x'], p['p']), file=f)
+                    print(p['ID'], *p['x'], *p['p'], file=f)
                 if nparts >= minparts and nsamples >= minsamples:
                     break
 

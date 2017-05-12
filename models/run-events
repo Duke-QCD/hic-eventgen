@@ -4,6 +4,7 @@ import argparse
 import datetime
 from itertools import chain, repeat
 import logging
+import math
 import os
 import signal
 import subprocess
@@ -108,6 +109,10 @@ parser.add_argument(
     help='log level (default: %(default)s)'
 )
 parser.add_argument(
+    '--nucleon-width', type=float, default=.5,
+    help='trento nucleon width [fm] (default: %(default)s fm)'
+)
+parser.add_argument(
     '--trento-args', default='Pb Pb',
     help="arguments passed to trento (default: '%(default)s')"
 )
@@ -125,6 +130,10 @@ parser.add_argument(
 )
 
 
+class StopEvent(Exception):
+    """ Raise to end an event early. """
+
+
 def run_events(args, results_file):
     """
     Run events as determined by user input:
@@ -133,8 +142,13 @@ def run_events(args, results_file):
         - Write results to binary file object `results_file`.
 
     """
-    grid_step = 0.1
-    grid_max = 13.05
+    grid_step = .15*args.nucleon_width
+    grid_n = math.ceil(2*15/grid_step)
+    grid_max = .5*grid_n*grid_step
+    logging.info(
+        'grid step = %.6f fm, n = %d, max = %.6f fm',
+        grid_step, grid_n, grid_max
+    )
 
     def _initial_conditions(nevents=10, initial_file='initial.hdf'):
         """
@@ -151,6 +165,7 @@ def run_events(args, results_file):
             '--number-events {}'.format(nevents),
             '--grid-step {} --grid-max {}'.format(grid_step, grid_max),
             '--output', initial_file,
+            '--nucleon-width {}'.format(args.nucleon_width),
             args.trento_args
         )
 
@@ -166,15 +181,97 @@ def run_events(args, results_file):
     )
 
     # create sampler HRG object (to be reused for all events)
-    hrg = frzout.HRG(args.Tswitch, species='urqmd', res_width=True)
-    eswitch = hrg.energy_density()
+    hrg_kwargs = dict(species='urqmd', res_width=True)
+    hrg = frzout.HRG(args.Tswitch, **hrg_kwargs)
 
     # append switching energy density to vishnew arguments
-    vishnew_args = [
-        args.vishnew_args,
-        'initialuread=1 iein=0 t0={}'.format(args.tau_fs),
-        'edec={}'.format(eswitch)
+    eswitch = hrg.energy_density()
+    vishnew_args = [args.vishnew_args, 'edec={}'.format(eswitch)]
+
+    # arguments for "coarse" vishnew pre-runs
+    # no viscosity, run down to low temperature 120 MeV
+    vishnew_args_coarse = [
+        'etas_hrg=0 etas_min=0 etas_slope=0 zetas_max=0 zetas_width=0',
+        'edec={}'.format(frzout.HRG(.12, **hrg_kwargs).energy_density())
     ]
+
+    def run_vishnew(fs, event_size, coarse=False, dt_ratio=.25):
+        """
+        Run the initial condition contained in FreeStreamer object `fs` through
+        vishnew on a grid with approximate physical size `event_size` [fm].
+        Return a dict of freeze-out surface data suitable for passing directly
+        to frzout.Surface.
+
+        Initial condition arrays are cropped or padded as necessary.
+
+        If `coarse` is an integer > 1, use only every `coarse`th cell from the
+        initial condition arrays (thus increasing the physical grid step size
+        by a factor of `coarse`).  Ignore the user input `vishnew_args` and
+        instead run ideal hydro down to a low temperature.
+
+        `dt_ratio` sets the timestep as a fraction of the spatial step
+        (dt = dt_ratio * dxy).  The SHASTA algorithm requires dt_ratio < 1/2.
+
+        """
+        dxy = grid_step * (coarse or 1)
+        ls = math.ceil(event_size/dxy)  # the vishnew "ls" parameter
+        n = 2*ls + 1  # actual number of grid cells
+
+        for fmt, f, arglist in [
+                ('ed', fs.energy_density, [()]),
+                ('u{}', fs.flow_velocity, [(1,), (2,)]),
+                ('pi{}{}', fs.shear_tensor, [(1, 1), (1, 2), (2, 2)]),
+        ]:
+            for a in arglist:
+                X = f(*a)
+
+                if coarse:
+                    X = X[::coarse, ::coarse]
+
+                diff = X.shape[0] - n
+                start = int(abs(diff)/2)
+
+                if diff > 0:
+                    # original grid is larger -> cut out middle square
+                    s = slice(start, start + n)
+                    X = X[s, s]
+                elif diff < 0:
+                    # original grid is smaller
+                    #  -> create new array and place original grid in middle
+                    Xn = np.zeros((n, n))
+                    s = slice(start, start + X.shape[0])
+                    Xn[s, s] = X
+                    X = Xn
+
+                np.savetxt(fmt.format(*a) + '.dat', X)
+
+        dt = dxy*dt_ratio
+
+        run_cmd(
+            'vishnew',
+            't0={} dt={} dxy={} nls={}'.format(args.tau_fs, dt, dxy, ls),
+            *(vishnew_args_coarse if coarse else vishnew_args)
+        )
+
+        surface = np.array(read_text_file('surface.dat'), dtype=float)
+
+        # end event if the surface is empty -- this occurs in ultra-peripheral
+        # events where the initial condition doesn't exceed Tswitch
+        if surface.size == 0:
+            raise StopEvent('empty surface')
+
+        # surface columns:
+        #   0    1  2  3         4         5         6    7
+        #   tau  x  y  dsigma_t  dsigma_x  dsigma_y  v_x  v_y
+        #   8     9     10    11    12    13    14    15
+        #   pitt  pitx  pity  pixx  pixy  piyy  pizz  Pi
+
+        # pack surface data into a dict suitable for passing to frzout.Surface
+        return dict(
+            zip(['x', 'sigma', 'v'], np.hsplit(surface, [3, 6, 8])),
+            pi=dict(zip(['xx', 'xy', 'yy'], surface.T[11:14])),
+            Pi=surface.T[15]
+        )
 
     # species (name, ID) for identified particle observables
     species = [
@@ -214,6 +311,8 @@ def run_events(args, results_file):
         # read initial density array from dataset
         density = np.array(ic)
 
+        assert all(n == grid_n for n in density.shape)
+
         logging.info(
             'free streaming initial condition for %.3f fm',
             args.tau_fs
@@ -224,36 +323,16 @@ def run_events(args, results_file):
         e_above = e[e > eswitch].sum()
         results['mult_factor'] = e.sum()/e_above if e_above > 0 else 1
 
-        # write initial file[s] for vishnew
-        np.savetxt('ed.dat', e)
-        for i in [1, 2]:
-            np.savetxt('u{}.dat'.format(i), fs.flow_velocity(i))
-        for ij in [(1, 1), (1, 2), (2, 2)]:
-            np.savetxt('pi{}{}.dat'.format(*ij), fs.shear_tensor(*ij))
+        # run coarse event on large grid and determine max radius
+        rmax = math.sqrt((
+            run_vishnew(fs, event_size=25, coarse=3)['x'][:, 1:3]**2
+        ).sum(axis=1).max())
+        logging.info('rmax = %.3f fm', rmax)
 
-        # hydro
-        run_cmd('vishnew', *vishnew_args)
-
-        # read freeze-out surface data
-        surface_data = np.array(read_text_file('surface.dat'), dtype=float)
-
-        # end event if the surface is empty -- this occurs in ultra-peripheral
-        # events where the initial condition doesn't exceed Tswitch
-        if surface_data.size == 0:
-            logging.info('empty surface, ending event')
-            return
-
-        # unpack surface_data columns:
-        #   0    1  2  3         4         5         6    7
-        #   tau  x  y  dsigma^t  dsigma^x  dsigma^y  v_x  v_y
-        #   8     9     10    11    12    13    14    15
-        #   pitt  pitx  pity  pixx  pixy  piyy  pizz  Pi
-        x, sigma, v, _ = np.hsplit(surface_data, [3, 6, 8])
-        pi = dict(zip(['xx', 'xy', 'yy'], surface_data.T[11:14]))
-        Pi = surface_data.T[15]
-
-        # create sampler surface object
-        surface = frzout.Surface(x, sigma, v, pi=pi, Pi=Pi, ymax=2)
+        # now run normal event with size set to the max radius
+        # and create sampler surface object
+        surface = frzout.Surface(**run_vishnew(fs, event_size=rmax), ymax=2)
+        logging.info('%d freeze-out cells', len(surface))
 
         minsamples, maxsamples = 10, 1000  # reasonable range for nsamples
         minparts = 10**5  # min number of particles to sample
@@ -277,8 +356,7 @@ def run_events(args, results_file):
         logging.info('produced %d particles in %d samples', nparts, nsamples)
 
         if nparts == 0:
-            logging.info('no particles produced, ending event')
-            return
+            raise StopEvent('no particles produced')
 
         results['nsamples'] = nsamples
 
@@ -322,6 +400,8 @@ def run_events(args, results_file):
 
         try:
             run_single_event(ic)
+        except StopEvent as e:
+            logging.info('event stopped: %s', e)
         except Exception:
             logging.exception('event %d failed', n)
             nfail += 1

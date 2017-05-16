@@ -78,8 +78,8 @@ for i in models/*/; do
       || exit 1
 
     # let python find packages in the temporary directory -- this is necessary
-    # because generating the eos table for vishnew requires frzout (note frzout
-    # installs first because it's alphabetically ahead)
+    # because generating the eos table for osu-hydro requires frzout (note
+    # frzout installs first because it's alphabetically ahead)
     export PYTHONPATH="$(echo $pkgdir/lib/python*/site-packages)"
   else
     echo "unknown build system for model $i"

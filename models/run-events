@@ -121,8 +121,8 @@ parser.add_argument(
     help='free streaming time [fm] (default: %(default)s fm)'
 )
 parser.add_argument(
-    '--vishnew-args', default='',
-    help='arguments passed to vishnew (default: empty)'
+    '--hydro-args', default='',
+    help='arguments passed to osu-hydro (default: empty)'
 )
 parser.add_argument(
     '--Tswitch', type=float, default=.150,
@@ -186,21 +186,21 @@ def run_events(args, results_file):
     hrg_kwargs = dict(species='urqmd', res_width=True)
     hrg = frzout.HRG(args.Tswitch, **hrg_kwargs)
 
-    # append switching energy density to vishnew arguments
+    # append switching energy density to hydro arguments
     eswitch = hrg.energy_density()
-    vishnew_args = [args.vishnew_args, 'edec={}'.format(eswitch)]
+    hydro_args = [args.hydro_args, 'edec={}'.format(eswitch)]
 
-    # arguments for "coarse" vishnew pre-runs
+    # arguments for "coarse" hydro pre-runs
     # no viscosity, run down to low temperature 120 MeV
-    vishnew_args_coarse = [
+    hydro_args_coarse = [
         'etas_hrg=0 etas_min=0 etas_slope=0 zetas_max=0 zetas_width=0',
         'edec={}'.format(frzout.HRG(.12, **hrg_kwargs).energy_density())
     ]
 
-    def run_vishnew(fs, event_size, coarse=False, dt_ratio=.25):
+    def run_hydro(fs, event_size, coarse=False, dt_ratio=.25):
         """
         Run the initial condition contained in FreeStreamer object `fs` through
-        vishnew on a grid with approximate physical size `event_size` [fm].
+        osu-hydro on a grid with approximate physical size `event_size` [fm].
         Return a dict of freeze-out surface data suitable for passing directly
         to frzout.Surface.
 
@@ -208,7 +208,7 @@ def run_events(args, results_file):
 
         If `coarse` is an integer > 1, use only every `coarse`th cell from the
         initial condition arrays (thus increasing the physical grid step size
-        by a factor of `coarse`).  Ignore the user input `vishnew_args` and
+        by a factor of `coarse`).  Ignore the user input `hydro_args` and
         instead run ideal hydro down to a low temperature.
 
         `dt_ratio` sets the timestep as a fraction of the spatial step
@@ -216,7 +216,7 @@ def run_events(args, results_file):
 
         """
         dxy = grid_step * (coarse or 1)
-        ls = math.ceil(event_size/dxy)  # the vishnew "ls" parameter
+        ls = math.ceil(event_size/dxy)  # the osu-hydro "ls" parameter
         n = 2*ls + 1  # actual number of grid cells
 
         for fmt, f, arglist in [
@@ -245,17 +245,17 @@ def run_events(args, results_file):
                     Xn[s, s] = X
                     X = Xn
 
-                np.savetxt(fmt.format(*a) + '.dat', X)
+                X.tofile(fmt.format(*a) + '.dat')
 
         dt = dxy*dt_ratio
 
         run_cmd(
-            'vishnew',
+            'osu-hydro',
             't0={} dt={} dxy={} nls={}'.format(args.tau_fs, dt, dxy, ls),
-            *(vishnew_args_coarse if coarse else vishnew_args)
+            *(hydro_args_coarse if coarse else hydro_args)
         )
 
-        surface = np.array(read_text_file('surface.dat'), dtype=float)
+        surface = np.fromfile('surface.dat', dtype='f8').reshape(-1, 16)
 
         # end event if the surface is empty -- this occurs in ultra-peripheral
         # events where the initial condition doesn't exceed Tswitch
@@ -327,13 +327,13 @@ def run_events(args, results_file):
 
         # run coarse event on large grid and determine max radius
         rmax = math.sqrt((
-            run_vishnew(fs, event_size=25, coarse=3)['x'][:, 1:3]**2
+            run_hydro(fs, event_size=25, coarse=3)['x'][:, 1:3]**2
         ).sum(axis=1).max())
         logging.info('rmax = %.3f fm', rmax)
 
         # now run normal event with size set to the max radius
         # and create sampler surface object
-        surface = frzout.Surface(**run_vishnew(fs, event_size=rmax), ymax=2)
+        surface = frzout.Surface(**run_hydro(fs, event_size=rmax), ymax=2)
         logging.info('%d freeze-out cells', len(surface))
 
         minsamples, maxsamples = 10, 1000  # reasonable range for nsamples

@@ -45,16 +45,6 @@ def run_cmd(*args):
         return proc
 
 
-def read_text_file(filename):
-    """
-    Read a text file into a nested list of bytes objects,
-    skipping comment lines (#).
-
-    """
-    with open(filename, 'rb') as f:
-        return [l.split() for l in f if not l.startswith(b'#')]
-
-
 class Parser(argparse.ArgumentParser):
     """
     ArgumentParser that parses files with 'key = value' lines.
@@ -360,29 +350,41 @@ def run_events(args, results_file):
         if nparts == 0:
             raise StopEvent('no particles produced')
 
+        # try to free some memory
+        # (up to ~a few hundred MiB for ultracentral collisions)
+        del surface
+
         results['nsamples'] = nsamples
 
         # hadronic afterburner
         run_cmd('afterburner particles_in.dat particles_out.dat')
 
         # read final particle data
-        ID, charge, pT, phi, y, eta = (
-            np.array(col, dtype=dtype) for (col, dtype) in
-            zip(
-                zip(*read_text_file('particles_out.dat')),
-                (2*[int] + 4*[float])
+        with open('particles_out.dat', 'rb') as f:
+            parts = np.fromiter(
+                (tuple(l.split()) for l in f if not l.startswith(b'#')),
+                dtype=[
+                    ('ID', int),
+                    ('charge', int),
+                    ('pT', float),
+                    ('phi', float),
+                    ('y', float),
+                    ('eta', float),
+                ]
             )
-        )
 
         logging.info('computing observables')
-        charged = (charge != 0)
-        abs_eta = np.fabs(eta)
+        charged = (parts['charge'] != 0)
+        abs_eta = np.fabs(parts['eta'])
 
         results['dNch_deta'] = \
             np.count_nonzero(charged & (abs_eta < .5)) / nsamples
 
-        abs_ID = np.abs(ID)
-        midrapidity = (np.fabs(y) < .5)
+        abs_ID = np.abs(parts['ID'])
+        midrapidity = (np.fabs(parts['y']) < .5)
+
+        pT = parts['pT']
+        phi = parts['phi']
 
         for name, i in species:
             cut = (abs_ID == i) & midrapidity

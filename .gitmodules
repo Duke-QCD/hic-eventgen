@@ -4,9 +4,9 @@
 [submodule "models/freestream"]
 	path = models/freestream
 	url = https://github.com/Duke-QCD/freestream.git
-[submodule "models/vishnew"]
-	path = models/vishnew
-	url = https://github.com/jbernhard/vishnew.git
+[submodule "models/osu-hydro"]
+	path = models/osu-hydro
+	url = https://github.com/jbernhard/osu-hydro.git
 [submodule "models/frzout"]
 	path = models/frzout
 	url = https://github.com/jbernhard/frzout.git

@@ -49,12 +49,13 @@ cp -v condor/$exefile $scratchdir
 cd $scratchdir
 
 # Define job requirements:
+#  - Require RHEL 6 (until RHEL 7 nodes have requisite modules).
 #  - All nodes must have oasis modules.
 #  - Avoid last several hosts; this prevents repeated failures on the same
 #    machines ("black holes").  See e.g.
 #    https://htcondor-wiki.cs.wisc.edu/index.cgi/wiki?p=AvoidingBlackHoles
 histlen=5
-requirements='HAS_CVMFS_oasis_opensciencegrid_org'
+requirements='OSGVO_OS_STRING == "RHEL 6" && HAS_CVMFS_oasis_opensciencegrid_org'
 for i in $(seq $(( histlen - 1 ))); do
   requirements="$requirements && target.machine =!= MachineAttrMachine$i"
 done

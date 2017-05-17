@@ -9,7 +9,7 @@ The collision model consists of the following stages:
 
 - initial conditions (trento)
 - free streaming
-- viscous 2+1D hydro (vishnew)
+- viscous 2+1D hydro (osu-hydro)
 - particlization (frzout)
 - hadronic afterburner (UrQMD)
 
@@ -17,42 +17,71 @@ Each model is included as a git submodule in the `models` directory.
 
 ## Usage
 
-_Note: I designed this for my own personal use, and this readme is barely more than notes to myself.  Feel free to contact me with questions._
+I designed this for my personal projects — it is not a general-purpose framework (generalizing it would introduce far too many variables and "moving parts").
+However, it has a lot of useful functionality and is an excellent starting point for similar heavy-ion collision projects.
+I recommend forking this repository and modifying it as needed.
+
+I realize this readme is brief, and I plan to write more detailed documentation.
+Feel free to contact me with questions!
 
 ### Building
 
-The workflow is primarily tested on the OSG XSEDE submit host xd-login.opensciencegrid.org, but it should work on other hosts e.g. OSG Connect.
+To submit jobs, build on an OSG submit host, e.g. XSEDE (xd-login.opensciencegrid.org) or Duke CI-connect (duke-login.osgconnect.net).
 
 Clone the repository with the `--recursive` option to acquire all submodules.
 
 Run `./makepkg` to build all the models and create the job package `hic-osg.tar.gz`.
-This package contains all files common to each job: run script, executables, data tables, etc.
+This package contains all files common to each job: run script, executables, data files, etc.
+
+### The run-events script
+
+The Python script `models/run-events` executes complete events and computes observables.
+The basic usage is
+
+    run-events [options] results_file
+
+Observables are written to `results_file` in binary format.
+The binary data type is defined in `run-events` and must be fully specified when loading the files;
+the idea is to cat a set of results files together and then load it using e.g. `numpy.fromfile`.
+
+The most common options are:
+
+- `--nevents` number of events to run
+- `--nucleon-width` Gaussian nucleon width (passed to `trento` and used to set the hydro grid resolution)
+- `--trento-args` arguments passed to `trento`
+  - __must__ include the collision system and cross section
+  - __must not__ include the nucleon width or any grid options
+- `--tau-fs` free-streaming time
+- `--hydro-args` arguments  passed to `osu-hydro`
+  - __must not__ include the initial time, freeze-out energy density, or any grid options
+- `--Tswitch` particlization temperature
+
+__WARNING__: Options `--trento-args` and `--hydro-args` are passed directly to the respective programs.
+Ensure that the restrictions described above are satisfied.
+
+See `run-events --help` for the complete list of options.
 
 ### Input files
 
-To pass parameters to the models, use "input files".
-The idea is to create a bunch of input files (e.g. for a set of design points) and then run many jobs for each one.
+Options for `run-events` may be specified on the command line or in files.
+Files must have one option per line with `key = value` syntax, where the keys are the option names without the `--` prefix.
+After creating an input file, use it with the syntax `run-events @path/to/input_file`.
 
-Input files have a simple `key = value` syntax, like this:
+For example, if a file named `config` contains the following:
 
-    trento_args = <arguments that will be passed to trento>
-    tau_fs = <free streaming time in fm/c>
-    vishnew_args = <arguments that will be passed to vishnew>
-    Tswitch = <partclization temperature in GeV>
+    nevents = 10
+    nucleon-width = 0.6
+
+Then `run-events @config` is equivalent to `run-events --nevents 10 --nucleon-width 0.6`.
+
+Input files are useful for saving logical groups of parameters, e.g. for a set of design points.
 
 ### Submitting jobs
 
-The Python script `models/run-events` executes each job.
-It runs 10 events per job, meaning 10 Monte Carlo initial conditions and hydro events plus oversampling.
-The number of oversamples is determined adaptively so that each event produces roughly the same total number of particles.
-
-For each event, several observables (particle multiplicities, flow Q-vectors, etc) are computed and saved to the raw binary file `<condor working directory>/hic-osg/results`.
-The binary data type is defined in `models/run-events` and must be fully specified when loading the files;
-the idea is to cat a set of results files together and then load it using e.g. `numpy.fromfile`.
-More discussion of the pros and cons of this format is in the comments of `run-events`.
-
 The shell script `condor/hic-wrapper` is the Condor executable.
-It loads necessary environment modules, calls `run-events`, and copies the results file to the final destination via GridFTP (note: this requires a grid certificate).
+It sets environment variables, calls `run-events`, and copies the results file to the final destination via GridFTP (note: this requires a grid certificate).
+
+Each job runs 10 events.
 
 The shell script `condor/submit` generates the Condor job files and submits them (note: it has the GridFTP destination hard-coded to the Duke file server).
 To submit a batch of jobs:

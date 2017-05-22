@@ -77,8 +77,8 @@ job_machine_attrs = Machine
 job_machine_attrs_history_length = $histlen
 requirements = $requirements
 
-request_memory = 500M
-request_disk = 500M
+request_memory = 1G
+request_disk = 1G
 rank = KFlops
 
 executable = $exefile

@@ -181,10 +181,10 @@ def run_events(args, results_file):
     hydro_args = [args.hydro_args, 'edec={}'.format(eswitch)]
 
     # arguments for "coarse" hydro pre-runs
-    # no viscosity, run down to low temperature 120 MeV
+    # no viscosity, run down to low temperature 110 MeV
     hydro_args_coarse = [
         'etas_hrg=0 etas_min=0 etas_slope=0 zetas_max=0 zetas_width=0',
-        'edec={}'.format(frzout.HRG(.12, **hrg_kwargs).energy_density())
+        'edec={}'.format(frzout.HRG(.110, **hrg_kwargs).energy_density())
     ]
 
     def run_hydro(fs, event_size, coarse=False, dt_ratio=.25):
@@ -317,7 +317,7 @@ def run_events(args, results_file):
 
         # run coarse event on large grid and determine max radius
         rmax = math.sqrt((
-            run_hydro(fs, event_size=25, coarse=3)['x'][:, 1:3]**2
+            run_hydro(fs, event_size=27, coarse=3)['x'][:, 1:3]**2
         ).sum(axis=1).max())
         logging.info('rmax = %.3f fm', rmax)
 

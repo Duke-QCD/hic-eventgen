@@ -367,6 +367,8 @@ def run_events(args, results_file):
                     ('ID', int),
                     ('charge', int),
                     ('pT', float),
+                    ('ET', float),
+                    ('mT', float),
                     ('phi', float),
                     ('y', float),
                     ('eta', float),

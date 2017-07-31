@@ -70,7 +70,16 @@ parser = Parser(
         'checkpoint <checkpoint_file>',
         '-h | --help',
     ]),
-    description='run heavy-ion collision events'
+    description='''
+Run relativistic heavy-ion collision events.
+
+In the first form, run events according to the given options (below) and write
+results to binary file <results_file>.
+
+In the second form, run the event saved in <checkpoint_file>, previously
+created by using the --checkpoint option and interrupting an event in progress.
+''',
+    formatter_class=argparse.RawDescriptionHelpFormatter
 )
 
 
@@ -123,56 +132,56 @@ parser.add_argument(
     help=argparse.SUPPRESS
 )
 parser.add_argument(
-    '--buffering', type=int, default=0,
-    help='results file buffer size'
+    '--buffering', type=int, default=0, metavar='INT',
+    help='results file buffer size in bytes (default: no buffering)'
 )
 parser.add_argument(
-    '--nevents', type=int,
+    '--nevents', type=int, metavar='INT',
     help='number of events to run (default: run until interrupted)'
 )
 parser.add_argument(
-    '--rankvar',
+    '--rankvar', metavar='VAR',
     help='environment variable containing process rank'
 )
 parser.add_argument(
-    '--rankfmt',
+    '--rankfmt', metavar='FMT',
     help='format string for rank integer'
 )
 parser.add_argument(
-    '--workdir', default='.', type=os.path.abspath,
+    '--workdir', default='.', type=os.path.abspath, metavar='PATH',
     help='working directory (default: the current directory)'
 )
 parser.add_argument(
-    '--checkpoint', type=os.path.abspath,
-    help='checkpoint file (pickle format)'
+    '--checkpoint', type=os.path.abspath, metavar='PATH',
+    help='checkpoint file [pickle format]'
 )
 parser.add_argument(
-    '--logfile', type=os.path.abspath,
+    '--logfile', type=os.path.abspath, metavar='PATH',
     help='log file (default: stdout)'
 )
 parser.add_argument(
-    '--loglevel', choices=['debug', 'info', 'warning', 'error', 'critical'],
+    '--loglevel', choices={'debug', 'info', 'warning', 'error', 'critical'},
     default='info',
     help='log level (default: %(default)s)'
 )
 parser.add_argument(
-    '--nucleon-width', type=float, default=.5,
+    '--nucleon-width', type=float, default=.5, metavar='FLOAT',
     help='trento nucleon width [fm] (default: %(default)s fm)'
 )
 parser.add_argument(
-    '--trento-args', default='Pb Pb',
+    '--trento-args', default='Pb Pb', metavar='ARGS',
     help="arguments passed to trento (default: '%(default)s')"
 )
 parser.add_argument(
-    '--tau-fs', type=float, default=.5,
+    '--tau-fs', type=float, default=.5, metavar='FLOAT',
     help='free streaming time [fm] (default: %(default)s fm)'
 )
 parser.add_argument(
-    '--hydro-args', default='',
+    '--hydro-args', default='', metavar='ARGS',
     help='arguments passed to osu-hydro (default: empty)'
 )
 parser.add_argument(
-    '--Tswitch', type=float, default=.150,
+    '--Tswitch', type=float, default=.150, metavar='FLOAT',
     help='particlization temperature [GeV] (default: %(default).3f GeV)'
 )
 

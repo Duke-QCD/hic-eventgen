@@ -6,6 +6,7 @@ from itertools import chain, repeat
 import logging
 import math
 import os
+import pickle
 import signal
 import subprocess
 import sys
@@ -63,11 +64,63 @@ class Parser(argparse.ArgumentParser):
         return args
 
 
-parser = Parser(description='run heavy-ion collision events')
+parser = Parser(
+    usage=''.join('\n  %(prog)s ' + i for i in [
+        '[options] <results_file>',
+        'checkpoint <checkpoint_file>',
+        '-h | --help',
+    ]),
+    description='run heavy-ion collision events'
+)
+
+
+def parse_args_checkpoint():
+    """
+    Parse command line arguments according to the parser usage info.  Return a
+    tuple (args, ic) where `args` is a normal argparse.Namespace and `ic` is
+    either None or an np.array of the checkpointed initial condition.
+
+    First, check for the special "checkpoint" form, and if found, load and
+    return the args and checkpoint initial condition from the specified file.
+    If not, let the parser object handle everything.
+
+    This is a little hacky but it works fine.  Truth is, argparse can't do
+    exactly what I want here.  I suppose `docopt` might be a better option, but
+    it's not worth the effort to rewrite everything.
+
+    """
+    def usage():
+        parser.print_usage(sys.stderr)
+        sys.exit(2)
+
+    if len(sys.argv) == 1:
+        usage()
+
+    if sys.argv[1] == 'checkpoint':
+        if len(sys.argv) != 3:
+            usage()
+
+        path = sys.argv[2]
+
+        with open(path, 'rb') as f:
+            args, ic = pickle.load(f)
+
+        # as a simple integrity check, require that the checkpoint file is
+        # actually the file specified in the checkpointed args
+        if os.path.abspath(path) != args.checkpoint:
+            sys.exit(
+                'checkpoint file path {} does not match saved path {}'
+                .format(path, args.checkpoint)
+            )
+
+        return args, ic
+
+    return parser.parse_args(), None
+
 
 parser.add_argument(
     'results', type=os.path.abspath,
-    help='results output file'
+    help=argparse.SUPPRESS
 )
 parser.add_argument(
     '--buffering', type=int, default=0,
@@ -88,6 +141,10 @@ parser.add_argument(
 parser.add_argument(
     '--workdir', default='.', type=os.path.abspath,
     help='working directory (default: the current directory)'
+)
+parser.add_argument(
+    '--checkpoint', type=os.path.abspath,
+    help='checkpoint file (pickle format)'
 )
 parser.add_argument(
     '--logfile', type=os.path.abspath,
@@ -124,12 +181,13 @@ class StopEvent(Exception):
     """ Raise to end an event early. """
 
 
-def run_events(args, results_file):
+def run_events(args, results_file, checkpoint_ic=None):
     """
     Run events as determined by user input:
 
         - Read options from `args`, as returned by `parser.parse_args()`.
         - Write results to binary file object `results_file`.
+        - If `checkpoint_ic` is given, run only that IC.
 
     Return True if at least one event completed successfully, otherwise False.
 
@@ -144,7 +202,7 @@ def run_events(args, results_file):
 
     def _initial_conditions(nevents=10, initial_file='initial.hdf'):
         """
-        Run trento and yield HDF5 datasets.
+        Run trento and yield initial condition arrays.
 
         """
         try:
@@ -162,15 +220,30 @@ def run_events(args, results_file):
         )
 
         with h5py.File(initial_file, 'r') as f:
-            yield from f.values()
+            for dset in f.values():
+                ic = np.array(dset)
 
-    # if nevents was specified, generate that number of initial conditions
-    # otherwise generate indefinitely
-    initial_conditions = (
-        chain.from_iterable(_initial_conditions() for _ in repeat(None))
-        if args.nevents is None else
-        _initial_conditions(args.nevents)
-    )
+                # Write the checkpoint file _before_ starting the event so that
+                # even if the process is forcefully killed, the state will be
+                # saved.  If / when all events complete, delete the file.
+                if args.checkpoint is not None:
+                    with open(args.checkpoint, 'wb') as cf:
+                        pickle.dump((args, ic), cf, pickle.HIGHEST_PROTOCOL)
+                    logging.info('wrote checkpoint file %s', args.checkpoint)
+
+                yield ic
+
+    if checkpoint_ic is None:
+        # if nevents was specified, generate that number of initial conditions
+        # otherwise generate indefinitely
+        initial_conditions = (
+            chain.from_iterable(_initial_conditions() for _ in repeat(None))
+            if args.nevents is None else
+            _initial_conditions(args.nevents)
+        )
+    else:
+        # just run the checkpointed IC
+        initial_conditions = [checkpoint_ic]
 
     # create sampler HRG object (to be reused for all events)
     hrg_kwargs = dict(species='urqmd', res_width=True)
@@ -302,18 +375,15 @@ def run_events(args, results_file):
 
         """
         results.fill(0)
-        results['initial_entropy'] = ic.attrs['mult']
+        results['initial_entropy'] = ic.sum() * grid_step**2
 
-        # read initial density array from dataset
-        density = np.array(ic)
-
-        assert all(n == grid_n for n in density.shape)
+        assert all(n == grid_n for n in ic.shape)
 
         logging.info(
             'free streaming initial condition for %.3f fm',
             args.tau_fs
         )
-        fs = freestream.FreeStreamer(density, grid_max, args.tau_fs)
+        fs = freestream.FreeStreamer(ic, grid_max, args.tau_fs)
 
         # run coarse event on large grid and determine max radius
         rmax = math.sqrt((
@@ -432,33 +502,41 @@ def run_events(args, results_file):
         results_file.write(results.tobytes())
         logging.info('event %d completed successfully', n)
 
+    # at this point all events have completed (or failed),
+    # so delete the checkpoint file
+    if args.checkpoint is not None:
+        os.remove(args.checkpoint)
+        logging.info('removed checkpoint file %s', args.checkpoint)
+
     return n > nfail
 
 
 def main():
-    args = parser.parse_args()
+    args, checkpoint_ic = parse_args_checkpoint()
 
-    # must handle rank before setting up logging since it affects the log file
-    if args.rankvar:
-        rank = os.getenv(args.rankvar)
-        if rank is None:
-            print(
-                'rank variable {} is not set'.format(args.rankvar),
-                file=sys.stderr
-            )
-            sys.exit(1)
+    if checkpoint_ic is None:
+        # starting fresh -> truncate output files
+        filemode = 'w'
 
-        if args.rankfmt:
-            rank = args.rankfmt.format(int(rank))
+        # must handle rank first since it affects paths
+        if args.rankvar:
+            rank = os.getenv(args.rankvar)
+            if rank is None:
+                sys.exit('rank variable {} is not set'.format(args.rankvar))
 
-        argdict = vars(args)
+            if args.rankfmt:
+                rank = args.rankfmt.format(int(rank))
 
-        # append rank to path arguments, e.g.:
-        #   /path/to/output.log  ->  /path/to/output/<rank>.log
-        for arg in ['workdir', 'results', 'logfile']:
-            if argdict[arg] is not None:
-                root, ext = os.path.splitext(argdict[arg])
-                argdict[arg] = os.path.join(root, rank) + ext
+            # append rank to path arguments, e.g.:
+            #   /path/to/output.log  ->  /path/to/output/<rank>.log
+            for a in ['workdir', 'results', 'logfile', 'checkpoint']:
+                value = getattr(args, a)
+                if value is not None:
+                    root, ext = os.path.splitext(value)
+                    setattr(args, a, os.path.join(root, rank) + ext)
+    else:
+        # running checkpoint event -> append to existing files
+        filemode = 'a'
 
     os.makedirs(args.workdir, exist_ok=True)
     os.chdir(args.workdir)
@@ -468,8 +546,11 @@ def main():
     if args.logfile is None:
         logfile_kwargs = dict(stream=sys.stdout)
     else:
-        logfile_kwargs = dict(filename=args.logfile, filemode='w')
+        logfile_kwargs = dict(filename=args.logfile, filemode=filemode)
         os.makedirs(os.path.dirname(args.logfile), exist_ok=True)
+
+    if args.checkpoint is not None:
+        os.makedirs(os.path.dirname(args.checkpoint), exist_ok=True)
 
     logging.basicConfig(
         level=getattr(logging, args.loglevel.upper()),
@@ -479,16 +560,22 @@ def main():
     logging.captureWarnings(True)
 
     start = datetime.datetime.now()
-    logging.info('started at %s', start)
-    logging.info('arguments: %r', args)
+    if checkpoint_ic is None:
+        logging.info('started at %s', start)
+        logging.info('arguments: %r', args)
+    else:
+        logging.info(
+            'restarting from checkpoint file %s at %s',
+            args.checkpoint, start
+        )
 
     # translate SIGTERM to KeyboardInterrupt
     signal.signal(signal.SIGTERM, signal.default_int_handler)
     logging.debug('set SIGTERM handler')
 
-    with open(args.results, 'wb', buffering=args.buffering) as f:
+    with open(args.results, filemode + 'b', buffering=args.buffering) as f:
         try:
-            status = run_events(args, f)
+            status = run_events(args, f, checkpoint_ic)
         except KeyboardInterrupt:
             # after catching the initial SIGTERM or interrupt, ignore them
             # during shutdown -- this ensures everything will exit gracefully
@@ -500,6 +587,11 @@ def main():
                 'interrupt or signal at %s, cleaning up...',
                 datetime.datetime.now()
             )
+            if args.checkpoint is not None:
+                logging.info(
+                    'current event saved in checkpoint file %s',
+                    args.checkpoint
+                )
 
     end = datetime.datetime.now()
     logging.info('finished at %s, %s elapsed', end, end - start)

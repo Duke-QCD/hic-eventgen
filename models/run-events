@@ -511,11 +511,17 @@ def run_events(args, results_file, checkpoint_ic=None):
         results_file.write(results.tobytes())
         logging.info('event %d completed successfully', n)
 
-    # at this point all events have completed (or failed),
-    # so delete the checkpoint file
+    # end of events: if running with a checkpoint, delete the file unless this
+    # was a failed re-run of a checkpoint event
     if args.checkpoint is not None:
-        os.remove(args.checkpoint)
-        logging.info('removed checkpoint file %s', args.checkpoint)
+        if checkpoint_ic is not None and nfail > 0:
+            logging.info(
+                'checkpoint event failed, keeping file %s',
+                args.checkpoint
+            )
+        else:
+            os.remove(args.checkpoint)
+            logging.info('removed checkpoint file %s', args.checkpoint)
 
     return n > nfail
 

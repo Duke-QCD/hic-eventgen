@@ -111,14 +111,20 @@ def parse_args_checkpoint():
 
         path = sys.argv[2]
 
-        with open(path, 'rb') as f:
-            args, ic = pickle.load(f)
+        try:
+            with open(path, 'rb') as f:
+                args, ic = pickle.load(f)
+        except Exception as e:
+            msg = '{}: {}'.format(type(e).__name__, e)
+            if path not in msg:
+                msg += ": '{}'".format(path)
+            sys.exit(msg)
 
         # as a simple integrity check, require that the checkpoint file is
         # actually the file specified in the checkpointed args
         if os.path.abspath(path) != args.checkpoint:
             sys.exit(
-                'checkpoint file path {} does not match saved path {}'
+                "checkpoint file path '{}' does not match saved path '{}'"
                 .format(path, args.checkpoint)
             )
 

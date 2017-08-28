@@ -24,7 +24,7 @@ export PYTHONPATH="$(echo $prefix/lib/python*/site-packages)"
 # go!
 run-events \
   --nevents 10 \
-  --workdir work \
+  --tmpdir . \
   @$inputfile \
   results || exit 1
 

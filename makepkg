@@ -4,6 +4,13 @@ export CFLAGS='-ffast-math'
 export FFLAGS=$CFLAGS
 export CXXFLAGS=$CFLAGS
 
+# get the path to the current python site-packages directory
+# adapted from virtualenvwrapper (https://virtualenvwrapper.readthedocs.io)
+get_site_packages_dir() {
+  python -c \
+    'import distutils.sysconfig; print(distutils.sysconfig.get_python_lib())'
+}
+
 # extra preparation when compiling on OSG submit hosts
 if [[ $(hostname) =~ opensciencegrid.org|osgconnect.net ]]; then
   # load lmod
@@ -17,6 +24,9 @@ if [[ $(hostname) =~ opensciencegrid.org|osgconnect.net ]]; then
   #  - python and packages
   module purge
   module load gcc/6.2.0 python/3.5.2 all-pkgs cmake boost/1.62.0-cxx11 hdf5/1.8.13-cxx11
+
+  # save the path of the modules site-packages
+  osg_modules_site_packages_dir=$(get_site_packages_dir)
 
   # the modules set the standard environment variables CPATH and LIBRARY_PATH
   # set corresponding variables for cmake
@@ -50,6 +60,17 @@ trap "rm -r $installdir" EXIT
 pkgname='hic-osg'
 pkgdir="$installdir/$pkgname"
 
+# create python virtual environment to install into
+python -m venv --without-pip $pkgdir
+# delete unnecessary activate scripts
+rm $pkgdir/bin/activate*
+# activate the venv
+export PATH="$pkgdir/bin:$PATH"
+# add osg modules to python path
+# similar to 'add2virtualenv' in virtualenvwrapper
+# https://virtualenvwrapper.readthedocs.io/en/latest/command_ref.html#add2virtualenv
+echo $osg_modules_site_packages_dir > $(get_site_packages_dir)/osg_modules.pth
+
 # build each model
 for i in models/*/; do
   pushd $i
@@ -71,16 +92,7 @@ for i in models/*/; do
     make --jobs=$(nproc) DESTDIR=$pkgdir install || exit 1
   elif [[ -f setup.py ]]; then
     # install python packages
-    python3 setup.py install \
-      --no-compile \
-      --root=$pkgdir \
-      --prefix= \
-      || exit 1
-
-    # let python find packages in the temporary directory -- this is necessary
-    # because generating the eos table for osu-hydro requires frzout (note
-    # frzout installs first because it's alphabetically ahead)
-    export PYTHONPATH="$(echo $pkgdir/lib/python*/site-packages)"
+    python setup.py install || exit 1
   else
     echo "unknown build system for model $i"
     exit 1

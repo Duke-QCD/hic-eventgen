@@ -15,11 +15,11 @@ module load python/3.5.2 all-pkgs gcc/6.2.0 boost/1.62.0-cxx11 hdf5/1.8.13-cxx11
 pkgname='hic-osg'
 tar xzf $pkgname.tar.gz
 
-# set environment variables
 prefix="$(pwd)/$pkgname"
+# add models to path and activate python venv
 export PATH="$prefix/bin:$PATH"
+# allow osu-hydro to find its data files
 export XDG_DATA_HOME="$prefix/share"
-export PYTHONPATH="$(echo $prefix/lib/python*/site-packages)"
 
 # go!
 run-events \

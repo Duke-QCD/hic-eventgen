@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# Check that we're in either a conda env or python virtualenv.
+# In a conda env if CONDA_PREFIX points to a valid directory and the python
+# executable is in CONDA_PREFIX.
+if [[ -d "$CONDA_PREFIX" && "$(which python)" -ef "$CONDA_PREFIX/bin/python" ]]; then
+  prefix="$CONDA_PREFIX"
+else
+  # In a virtualenv if file pyvenv.cfg exists one level above the python
+  # executable.  (This is better than checking the VIRTUAL_ENV variable, which
+  # may not be set.)
+  prefix="$(readlink -f "$(dirname "$(which python)")/..")"
+  if [[ ! -f "$prefix/pyvenv.cfg" ]]; then
+    echo 'must install in an active python virtualenv or conda env'
+    exit 1
+  fi
+fi
+
+# go to directory containing this script
+# https://stackoverflow.com/a/246128
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+# build each model
+for i in models/*/; do
+  pushd $i
+
+  # determine whether to build with CMake or python
+  if [[ -f CMakeLists.txt ]]; then
+    # create build directory and run cmake if necessary
+    if [[ -d build ]]; then
+      cd build
+    else
+      mkdir build && cd build
+      cmake \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/ \
+        .. || exit 1
+    fi
+
+    # compile and install
+    make --jobs=$(nproc) DESTDIR=$prefix install || exit 1
+  elif [[ -f setup.py ]]; then
+    # install python packages
+    python setup.py install || exit 1
+  else
+    echo "unknown build system for model $i"
+    exit 1
+  fi
+
+  popd
+done
+
+# install the event runner script
+install -v models/run-events "$prefix/bin"

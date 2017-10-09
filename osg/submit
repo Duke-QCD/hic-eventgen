@@ -34,9 +34,9 @@ for f in $inputfiles; do
   mkdir -p $scratchdir/stdouterr/$(basename $f)
 done
 
-# change to project root directory, one level above this script
-# http://stackoverflow.com/a/246128
-cd "$(dirname "${BASH_SOURCE[0]}")"/..
+# go to directory containing this script
+# https://stackoverflow.com/a/246128
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
 # make package, place in scratch directory
 pkgfile='hic-osg.tar.gz'
@@ -44,7 +44,7 @@ pkgfile='hic-osg.tar.gz'
 
 # copy condor executable to scratch
 exefile='hic-wrapper'
-cp -v condor/$exefile $scratchdir
+cp -v $exefile $scratchdir
 
 cd $scratchdir
 

@@ -1,0 +1,77 @@
+#!/bin/bash
+
+shopt -s extglob
+if [[ $(hostname) != *@(opensciencegrid.org|osgconnect.net) ]]; then
+  echo 'this script should be run on an OSG submit host'
+  exit 1
+fi
+
+# load lmod
+source /cvmfs/oasis.opensciencegrid.org/osg/modules/lmod/current/init/bash
+
+# load necessary modules:
+#  - recent version of gcc, for c++11 among other things
+#  - recent version of cmake
+#  - boost for c++ codes
+#  - hdf5 for trento
+#  - python and packages
+module purge
+module load gcc/6.2.0 python/3.5.2 all-pkgs cmake boost/1.62.0-cxx11 hdf5/1.8.13-cxx11
+
+# get the path to the current python site-packages directory
+# adapted from virtualenvwrapper (https://virtualenvwrapper.readthedocs.io)
+get_site_packages_dir() {
+  python -c \
+    'import distutils.sysconfig; print(distutils.sysconfig.get_python_lib())'
+}
+
+# save the path of the modules site-packages
+osg_modules_site_packages_dir=$(get_site_packages_dir)
+
+# the modules set the standard environment variables CPATH and LIBRARY_PATH
+# set corresponding variables for cmake
+export CMAKE_INCLUDE_PATH=$CPATH
+export CMAKE_LIBRARY_PATH=$LIBRARY_PATH
+
+# set compiler flags
+export CFLAGS="-march=x86-64 -mtune=intel -ffast-math"
+export FFLAGS="$CFLAGS"
+export CXXFLAGS="$CFLAGS"
+
+# explicitly set fortran compiler to override cmake default
+export FC='gfortran'
+
+# set linker flags to prefer the module versions of libraries to the system versions
+# the linker reads $LIBRARY_PATH but gives it lower priority than the standard paths
+# this uses -L flags to give $LIBRARY_PATH higher priority
+export LDFLAGS="-L${LIBRARY_PATH//:/ -L}"
+
+# read optional argument destdir (where to place package file)
+# default is the current directory
+destdir=${1-.}
+
+# create a temporary directory for installing files
+tmpdir=$(mktemp --directory)
+# and ensure it's cleaned on exit
+trap "rm -r $tmpdir" EXIT
+
+pkgname='hic-osg'
+export VIRTUAL_ENV=$tmpdir/$pkgname
+
+# create python virtual environment to install into
+python -m venv --without-pip $VIRTUAL_ENV
+# delete unnecessary activate scripts
+rm $VIRTUAL_ENV/bin/activate*
+# activate the venv
+export PATH="$VIRTUAL_ENV/bin:$PATH"
+# add osg modules to python path
+# similar to 'add2virtualenv' in virtualenvwrapper
+# https://virtualenvwrapper.readthedocs.io/en/latest/command_ref.html#add2virtualenv
+echo $osg_modules_site_packages_dir > $(get_site_packages_dir)/osg_modules.pth
+
+# install to the temporary directory
+./"$(dirname "${BASH_SOURCE[0]}")"/../install
+
+# create tgz for distributing to each job
+tar --verbose --create --gzip --file "$destdir/$pkgname.tar.gz" \
+  --directory $tmpdir $pkgname

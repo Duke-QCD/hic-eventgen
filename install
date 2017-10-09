@@ -50,5 +50,5 @@ for i in models/*/; do
   popd
 done
 
-# install the event runner script
-install -v models/run-events "$prefix/bin"
+# install the event runner script and wrapper
+install -v models/run-events{,-wrapper} "$prefix/bin"

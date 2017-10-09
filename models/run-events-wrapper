@@ -1,0 +1,7 @@
+#!/bin/bash
+
+export VIRTUAL_ENV="$(readlink -e "$(dirname "${BASH_SOURCE[0]}")/..")"
+export PATH="$VIRTUAL_ENV/bin:$PATH"
+export XDG_DATA_HOME="$VIRTUAL_ENV/share"
+
+exec run-events $@

@@ -1,0 +1,32 @@
+#!/bin/bash
+
+if [[ ! $NERSC_HOST ]]; then
+  echo 'this script should be run on a NERSC machine'
+  exit 1
+elif [[ $(realpath $CONDA_PREFIX) != /global/common/software/* ]]; then
+  echo 'activate a conda env in /global/common/software (see docs)'
+  exit 1
+fi
+
+# set Intel compilers for cmake to detect
+# set flags to compile for both Cori and Edison
+export CC=icc CXX=icpc FC=ifort
+export CFLAGS='-static -xAVX -axCORE-AVX-I,CORE-AVX2 -diag-disable=remark'
+export CXXFLAGS=$CFLAGS FFLAGS=$CFLAGS
+
+# for building python extensions
+export LDSHARED="$CC -shared"
+export PY_FLAGS="${CFLAGS/-static/-static-intel}"
+
+# flags for GNU compilers
+export GNU_FLAGS="-static -march=ivybridge -mtune=haswell -ffast-math"
+
+# get the latest available version of a module
+module_latest() {
+  module avail $1 2>&1 | grep -o "$1/[0-9\.]\+" | sort --version-sort | tail -1
+}
+
+module load $(module_latest cmake) boost cray-hdf5
+
+# install to the conda env
+./"$(dirname "${BASH_SOURCE[0]}")"/../install

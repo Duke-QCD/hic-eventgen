@@ -31,17 +31,29 @@ for i in models/*/; do
       cd build
     else
       mkdir build && cd build
-      cmake \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX=/ \
-        .. || exit 1
+      # subshell allows temporary environment modification
+      (
+        [[ $i == *urqmd-afterburner* && $NERSC_HOST ]] && {
+          # urqmd has a fatal runtime error when compiled by Intel
+          module swap PrgEnv-{intel,gnu}
+          export FC=gfortran FFLAGS=$GNU_FLAGS
+        }
+        exec cmake \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=/ \
+          ..
+      ) || exit 1
     fi
 
     # compile and install
     make --jobs=$(nproc) DESTDIR=$prefix install || exit 1
   elif [[ -f setup.py ]]; then
     # install python packages
-    python setup.py install || exit 1
+    # subshell allows temporary environment modification
+    (
+      [[ $PY_FLAGS ]] && export CFLAGS=$PY_FLAGS CXXFLAGS=$PY_FLAGS
+      exec python setup.py install
+    ) || exit 1
   else
     echo "unknown build system for model $i"
     exit 1

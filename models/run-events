@@ -208,8 +208,13 @@ def run_events(args, results_file, checkpoint_ic=None):
     Return True if at least one event completed successfully, otherwise False.
 
     """
+    # set the grid step size proportionally to the nucleon width
     grid_step = .15*args.nucleon_width
-    grid_n = math.ceil(2*15/grid_step)
+    # the "target" grid max: the grid shall be at least as large as the target
+    grid_max_target = 15
+    # next two lines set the number of grid cells and actual grid max,
+    # which will be >= the target (same algorithm as trento)
+    grid_n = math.ceil(2*grid_max_target/grid_step)
     grid_max = .5*grid_n*grid_step
     logging.info(
         'grid step = %.6f fm, n = %d, max = %.6f fm',
@@ -229,7 +234,7 @@ def run_events(args, results_file, checkpoint_ic=None):
         run_cmd(
             'trento',
             '--number-events {}'.format(nevents),
-            '--grid-step {} --grid-max {}'.format(grid_step, grid_max),
+            '--grid-step {} --grid-max {}'.format(grid_step, grid_max_target),
             '--output', initial_file,
             '--nucleon-width {}'.format(args.nucleon_width),
             args.trento_args

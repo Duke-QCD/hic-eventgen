@@ -21,6 +21,10 @@ timestamp="$(date --utc +%Y%m%d_%H%M%S)"
 # gridftp destination for all events in this batch
 desturl="gsiftp://ntheoryfs01.phy.duke.edu/var/phy/project/nukeserv/$USER/hic-events/$batchlabel"
 
+# set OSG project name
+project='Duke-QGP'
+[[ $(hostname) == *osgconnect.net ]] && project="osg.$project"
+
 # create a "scratch" directory for all the condor files
 scratchdir="/local-scratch/$USER/condor/${timestamp}_${batchlabel//\//_}"
 mkdir -p $scratchdir
@@ -71,7 +75,7 @@ done
 cat > job <<EOF
 universe = vanilla
 x509userproxy = /tmp/x509up_u$(id --user)
-+ProjectName = "Duke-QGP"
++ProjectName = "$project"
 
 job_machine_attrs = Machine
 job_machine_attrs_history_length = $histlen

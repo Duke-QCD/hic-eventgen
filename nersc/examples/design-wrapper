@@ -1,0 +1,17 @@
+#!/bin/bash
+
+job="${NERSC_HOST}-${SLURM_JOB_ID}"
+
+for (( n = 0; n < $#; ++n )); do
+  index=$(( (SLURM_PROCID + n) % $# + 1 ))
+  file=${!index}
+
+  run-events \
+    --nevents 10 \
+    --rankvar SLURM_PROCID \
+    --rankfmt "{:0${#SLURM_NTASKS}d}" \
+    --logfile $CSCRATCH/logs/$job/$file.log \
+    --checkpoint $CSCRATCH/checkpoints/$job/$file.pkl \
+    @$CSCRATCH/inputfiles/$file \
+    $CSCRATCH/events/$file/$job.dat
+done

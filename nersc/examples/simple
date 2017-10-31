@@ -1,0 +1,25 @@
+#!/bin/bash
+#SBATCH --partition regular
+#SBATCH --constraint haswell
+#SBATCH --nodes 1
+#SBATCH --cpus-per-task 1
+#SBATCH --time 01:00:00
+#SBATCH --license cscratch1
+#SBATCH --mail-type ALL
+#SBATCH --mail-user <email>
+#SBATCH --output /global/cscratch1/sd/<user>/slurm/%x-%j
+#SBATCH --error  /global/cscratch1/sd/<user>/slurm/%x-%j
+
+export CONDA_PREFIX=/global/common/software/<project>/<prefix>
+export PATH=$CONDA_PREFIX/bin:$PATH
+export XDG_DATA_HOME=$CONDA_PREFIX/share
+
+job=$NERSC_HOST-$SLURM_JOB_ID
+ntasks=$(( SLURM_JOB_NUM_NODES * SLURM_CPUS_ON_NODE ))
+
+srun run-events \
+  --rankvar SLURM_PROCID \
+  --rankfmt "{:0${#ntasks}d}" \
+  --logfile $CSCRATCH/logs/$job.log \
+  --checkpoint $CSCRATCH/checkpoints/$job.pkl \
+  $CSCRATCH/events/$job.dat

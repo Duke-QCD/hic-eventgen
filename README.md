@@ -1,52 +1,56 @@
-# Heavy-ion collisions on the OSG
+# hic-eventgen
 
-Workflow for running large-scale event-by-event heavy-ion collision simulations on the Open Science Grid (OSG).
-Primarily intended for generating events for Bayesian model-to-data comparison.
+_heavy-ion collision event generator_
+
+## Three-sentence summary
+
+- This is a workflow for running simulations of relativistic heavy-ion collisions.
+- The primary intent is generating large quantities of events for use in Bayesian parameter estimation projects.
+- It includes scripts and utilities for running on the [Open Science Grid (OSG)](https://www.opensciencegrid.org) and [NERSC](https://www.nersc.gov), and could run on other systems.
 
 ## Physics models
 
 The collision model consists of the following stages:
 
-- initial conditions (trento)
-- free streaming
-- viscous 2+1D hydro (osu-hydro)
-- particlization (frzout)
-- hadronic afterburner (UrQMD)
+- [trento](https://github.com/Duke-QCD/trento) – initial conditions
+- [freestream](https://github.com/Duke-QCD/freestream) – pre-equilibrium
+- [OSU hydro](https://github.com/jbernhard/osu-hydro) – viscous 2+1D hydrodynamics
+- [frzout](https://github.com/jbernhard/frzout) – particlization
+- [UrQMD](https://github.com/jbernhard/urqmd-afterburner) – hadronic afterburner
 
-Each model is included as a git submodule in the `models` directory.
+Each is included as a git submodule in the [models](models) directory.
 
-## Usage
+:warning: git submodules have some annoying behavior.
+__Use the `--recursive` option when cloning this repository to also clone all submodules.__
+I suggest skimming the [section on submodules in the Pro Git book](https://git-scm.com/book/en/v2/Git-Tools-Submodules).
 
-I designed this for my personal projects — it is not a general-purpose framework (generalizing it would introduce far too many variables and "moving parts").
-However, it has a lot of useful functionality and is an excellent starting point for similar heavy-ion collision projects.
-I recommend forking this repository and modifying it as needed.
+## Installation
 
-I realize this readme is brief, and I plan to write more detailed documentation.
-Feel free to contact me with questions!
+hic-eventgen is probably most useful on high-performance computational systems, but it can run locally for testing or generating a few events.
 
-### Building
+### Computational systems
 
-To submit jobs, build on an OSG submit host, e.g. XSEDE (xd-login.opensciencegrid.org) or Duke CI-connect (duke-login.osgconnect.net).
+- [Open Science Grid (OSG)](osg)
+- [NERSC](nersc)
 
-Clone the repository with the `--recursive` option to acquire all submodules.
+### Local
 
-Run `./makepkg` to build all the models and create the job package `hic-osg.tar.gz`.
-This package contains all files common to each job: run script, executables, data files, etc.
+- [Local usage](local)
 
-### The run-events script
+## Running events
 
-The Python script `models/run-events` executes complete events and computes observables.
+_general information for running on all systems_
+
+The Python script [models/run-events](models/run-events) executes complete events and computes observables.
 The basic usage is
 
     run-events [options] results_file
 
-Observables are written to `results_file` in binary format.
-The binary data type is defined in `run-events` and must be fully specified when loading the files;
-the idea is to cat a set of results files together and then load it using e.g. `numpy.fromfile`.
+Observables are written to `results_file` in __binary__ format (see [event data format](#event-data-format) below).
 
 The most common options are:
 
-- `--nevents` number of events to run
+- `--nevents` number of events to run (by default, events run continuously until interrupted)
 - `--nucleon-width` Gaussian nucleon width (passed to `trento` and used to set the hydro grid resolution)
 - `--trento-args` arguments passed to `trento`
   - __must__ include the collision system and cross section
@@ -56,10 +60,54 @@ The most common options are:
   - __must not__ include the initial time, freeze-out energy density, or any grid options
 - `--Tswitch` particlization temperature
 
-__WARNING__: Options `--trento-args` and `--hydro-args` are passed directly to the respective programs.
+:warning: Options `--trento-args` and `--hydro-args` are passed directly to the respective programs.
 Ensure that the restrictions described above are satisfied.
+See also the docs for [trento](http://qcd.phy.duke.edu/trento) and [OSU hydro](https://github.com/jbernhard/osu-hydro).
 
 See `run-events --help` for the complete list of options.
+
+Options may also be specified [in files](#input-files).
+
+### The hydro grid
+
+The computational grid for `osu-hydro` is determined adaptively for each event in order to achieve sufficient precision without wasting CPU time.
+
+The grid cell size is set proportionally to the nucleon width (specifically 15% of the width).
+So when the nucleon width is small, events run a fine grid to resolve the small-scale structures;
+for large nucleons, events run on a coarser (i.e. faster) grid.
+
+The physical extent of the grid is determined by running each event on a coarse grid with ideal hydro and recording the maximum size of the system.
+Then, the event is re-run on a grid trimmed to the max size.
+This way, central events run on large grids to accommodate their transverse expansion, while peripheral events run on small grids to save CPU time.
+Although pre-running each event consumes some time, this strategy is still a net benefit because of all the time saved from running peripheral events on small grids.
+
+### Event data format
+
+Event observables are written in __binary__ format with the data type defined in `run-events` (do a text search for "results = np.empty" to find it in the file).
+Many results files may be concatenated together:
+
+    cat /path/to/results/* > events.dat
+
+In Python, read the binary files using [numpy.fromfile](https://docs.scipy.org/doc/numpy/reference/generated/numpy.fromfile.html).
+This returns [structured arrays](https://docs.scipy.org/doc/numpy/user/basics.rec.html) from which observables are accessed by their field names:
+
+```python
+import numpy as np
+events = np.fromfile('events.dat', dtype=<full dtype specification>)
+nch = events['dNch_deta']
+mean_pT_pion = events['mean_pT']['pion']
+```
+
+It's probably easiest to copy the relevant `dtype` code from `run-events`.
+
+I chose this plain binary data format because it's fast and space-efficient.
+On the other hand, it's inconvenient to fully specify the dtype when reading files, and organizing many small files can become unwieldy.
+
+A format with metadata, such as HDF5, is not a good choice because each event produces such a small amount of actual data.
+The metadata takes up too much space relative to the actual data and reading many small files is too slow.
+
+The best solution would probably be some kind of scalable database (perhaps MongoDB), but I simply haven't had time to get that up and running.
+If someone wants to do it, by all means go ahead!
 
 ### Input files
 
@@ -74,29 +122,67 @@ For example, if a file named `config` contains the following:
 
 Then `run-events @config` is equivalent to `run-events --nevents 10 --nucleon-width 0.6`.
 
-Input files are useful for saving logical groups of parameters, e.g. for a set of design points.
+Input files are useful for saving logical groups of parameters, such as for a set of design points.
 
-### Submitting jobs
+### Parallel events
 
-The shell script `condor/hic-wrapper` is the Condor executable.
-It sets environment variables, calls `run-events`, and copies the results file to the final destination via GridFTP (note: this requires a grid certificate).
+`run-events` can be used as an MPI executable for running multiple events in parallel (this is most useful on HPC systems like NERSC).
 
-Each job runs 10 events.
+Option `--rankvar` must be given so that each `run-events` process can determine its rank.
+The basic usage is
 
-The shell script `condor/submit` generates the Condor job files and submits them (note: it has the GridFTP destination hard-coded to the Duke file server).
-To submit a batch of jobs:
+    mpirun [mpirun_options] run-events --rankvar <rank_env_var> ...
 
-    ./condor/submit batch_label jobs_per_input_file input_files...
+where `<rank_env_var>` is the name of the rank environment variable set by `mpirun` for each process.
+For example, Open MPI sets `OMPI_COMM_WORLD_RANK`
 
-where
+    mpirun [mpirun_options] run-events --rankvar OMPI_COMM_WORLD_RANK ...
 
-- `batch_label` is a human-readable label that sets the destination folder for all job results files in this batch
-- `jobs_per_input_file` is the number of jobs to run for each input file
-- `input_files...` are the paths to each input file to run
+On SLURM systems (like at NERSC), `srun` sets `SLURM_PROCID`
 
-For example, I have a set of input files for running LHC events, and I want to run 10,000 events (1000 jobs) for each input file:
+    srun [srun_options] run-events --rankvar SLURM_PROCID ...
 
-    ./condor/submit lhc 1000 inputs/lhc/*
+When running with `--rankvar`, output files become folders and each rank creates a file, e.g. `/path/to/results.dat` becomes `/path/to/results/<rank>.dat`.
+The formatting of `<rank>` may be controlled by option `--rankfmt`, which must be a [Python format string](https://docs.python.org/3/library/string.html#format-string-syntax).
+This is probably most useful for padding rank integers with zeros, e.g. `--rankfmt '{:02d}'`.
 
-The `submit` script writes a long DAG file and submits it.
-The DAG will smoothly submit jobs to the queue and throttle the total number of idle jobs, so that essentially an arbitrary number of jobs can be submitted at once.
+When running in parallel, I recommend using the `--logfile` option so that each process writes its own log file, otherwise the output of all processes will intersperse on stdout.
+
+Full example:
+
+    mpirun -n 100 run-events \
+      --rankvar OMPI_COMM_WORLD_RANK \
+      --rankfmt '{:02d}' \
+      --logfile output.log \
+      results.dat
+
+This would create results files `results/00.dat`, `01.dat`, ..., `99.dat` and corresponding log files `output/00.log`, ..., `99.log`.
+
+### Checkpoints
+
+Events can be checkpointed and restarted if interrupted.
+The basic usage is
+
+    run-events --checkpoint <checkpoint_file_path> ...
+
+Before starting each event, checkpoint data is written to `<checkpoint_file_path>` in Python pickle format (for which I like the extension `.pkl`).
+If the event completes successfully, the checkpoint file is deleted.
+If the event is interrupted, it can be restarted later by
+
+    run-events checkpoint <checkpoint_file_path>
+
+(Note the differences from the first command: there is no `--` and no other options are accepted.)
+When running a checkpoint, the original results and log files are appended to.
+
+Example:
+
+    run-events --checkpoint ckpt.pkl --logfile output.log results.dat
+
+At some point, this process is interrupted:
+`results.dat` contains data for any events that have completed, `ckpt.pkl` contains the incomplete event, and `output.log` reflects this status.
+Then, sometime later:
+
+    run-events checkpoint ckpt.pkl
+
+This will run the event saved in `ckpt.pkl`, appending to `results.dat` and `output.log`.
+Upon completion, `ckpt.pkl` is deleted.

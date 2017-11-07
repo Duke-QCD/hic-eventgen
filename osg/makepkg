@@ -70,7 +70,7 @@ export PATH="$VIRTUAL_ENV/bin:$PATH"
 echo $osg_modules_site_packages_dir > $(get_site_packages_dir)/osg_modules.pth
 
 # install to the temporary directory
-./"$(dirname "${BASH_SOURCE[0]}")"/../install
+./"$(dirname "${BASH_SOURCE[0]}")"/../local/install
 
 # create tgz for distributing to each job
 tar --verbose --create --gzip --file "$destdir/$pkgname.tar.gz" \

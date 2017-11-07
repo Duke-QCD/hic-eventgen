@@ -29,4 +29,4 @@ module_latest() {
 module load $(module_latest cmake) boost cray-hdf5
 
 # install to the conda env
-./"$(dirname "${BASH_SOURCE[0]}")"/../install
+./"$(dirname "${BASH_SOURCE[0]}")"/../local/install

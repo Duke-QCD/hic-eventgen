@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --partition regular
+#SBATCH --qos regular
 #SBATCH --constraint haswell
 #SBATCH --nodes 20
 #SBATCH --ntasks-per-node 1

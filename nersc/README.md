@@ -16,7 +16,7 @@ bash Miniconda3-latest-Linux-x86_64.sh
 Install it somewhere in your home directory (the default location `~/miniconda3` is fine).
 
 The installer might ask if you want to prepend the conda install location to your `PATH`.
-This is a good idea, but on NERSC you cannot edit `~/.bashrc` itself (see [NERSC user environment](https://www.nersc.gov/users/software/nersc-user-environment)).
+This is a good idea, but on NERSC you cannot edit `~/.bashrc` itself (see [NERSC user environment](https://www.nersc.gov/users/software/user-environment/home-directories)).
 Add to `~/.bashrc.ext` (or the equivalent file for your shell):
 ```bash
 export PATH="$HOME/miniconda3/bin:$PATH"

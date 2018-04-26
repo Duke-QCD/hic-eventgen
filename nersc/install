@@ -1,4 +1,11 @@
-#!/bin/bash
+#!/bin/sh
+
+# cannot use bash as the interpreter due to BASH_ENV nonsense, see below
+if [[ $(basename $BASH) == 'bash' ]]; then
+  echo "do not run this script with bash"
+  echo "either execute it directly (i.e. as ./${0#./}) or use sh"
+  exit 1
+fi
 
 if [[ ! $NERSC_HOST ]]; then
   echo 'this script should be run on a NERSC machine'
@@ -7,6 +14,14 @@ elif [[ $(realpath $CONDA_PREFIX) != /global/common/software/* ]]; then
   echo 'activate a conda env in /global/common/software (see docs)'
   exit 1
 fi
+
+# Unfortunately, NERSC sets BASH_ENV=~/.bashrc, so .bashrc is sourced in bash
+# scripts (see bash man page).  If PATH and/or CONDA_PREFIX are modified in
+# .bashrc, it could deactivate a conda env.  To workaround this, use sh as the
+# interpreter (see shebang line), which does not use BASH_ENV, and unset
+# BASH_ENV here before calling local/install, which would otherwise again source
+# .bashrc.
+unset BASH_ENV
 
 # set Intel compilers for cmake to detect
 # set flags to compile for both Cori and Edison
@@ -21,6 +36,10 @@ export PY_FLAGS="${CFLAGS/-static/-static-intel}"
 # flags for GNU compilers
 export GNU_FLAGS="-static -march=ivybridge -mtune=haswell -ffast-math"
 
+# Since we're running in sh due to the BASH_ENV nonsense above, it is apparently
+# sometimes necessary to explicitly source this to load the module command.
+source /opt/modules/default/etc/modules.sh
+
 # get the latest available version of a module
 module_latest() {
   module avail $1 2>&1 | grep -o "$1/[0-9\.]\+" | sort --version-sort | tail -1
@@ -29,4 +48,4 @@ module_latest() {
 module load $(module_latest cmake) boost cray-hdf5
 
 # install to the conda env
-./"$(dirname "${BASH_SOURCE[0]}")"/../local/install
+"$(dirname "$0")"/../local/install

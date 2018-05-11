@@ -15,7 +15,7 @@ The collision model consists of the following stages:
 - [trento](https://github.com/Duke-QCD/trento) – initial conditions
 - [freestream](https://github.com/Duke-QCD/freestream) – pre-equilibrium
 - [OSU hydro](https://github.com/jbernhard/osu-hydro) – viscous 2+1D hydrodynamics
-- [frzout](https://github.com/jbernhard/frzout) – particlization
+- [frzout](https://github.com/Duke-QCD/frzout) – particlization
 - [UrQMD](https://github.com/jbernhard/urqmd-afterburner) – hadronic afterburner
 
 Each is included as a git submodule in the [models](models) directory.

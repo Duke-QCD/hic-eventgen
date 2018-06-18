@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
 import argparse
+from contextlib import contextmanager
 import datetime
-from itertools import chain, repeat
+from itertools import chain, groupby, repeat
 import logging
 import math
 import os
@@ -163,6 +164,10 @@ parser.add_argument(
     help='checkpoint file [pickle format]'
 )
 parser.add_argument(
+    '--particles', type=os.path.abspath, metavar='PATH',
+    help='raw particle data file (default: do not save)'
+)
+parser.add_argument(
     '--logfile', type=os.path.abspath, metavar='PATH',
     help='log file (default: stdout)'
 )
@@ -197,7 +202,7 @@ class StopEvent(Exception):
     """ Raise to end an event early. """
 
 
-def run_events(args, results_file, checkpoint_ic=None):
+def run_events(args, results_file, particles_file=None, checkpoint_ic=None):
     """
     Run events as determined by user input:
 
@@ -389,7 +394,20 @@ def run_events(args, results_file, checkpoint_ic=None):
         ('flow', [('N', int_t), ('Qn', complex_t, 8)]),
     ])
 
-    def run_single_event(ic):
+    # UrQMD raw particle format
+    parts_dtype = [
+        ('sample', int),
+        ('ID', int),
+        ('charge', int),
+        ('pT', float),
+        ('ET', float),
+        ('mT', float),
+        ('phi', float),
+        ('y', float),
+        ('eta', float)
+    ]
+
+    def run_single_event(ic, event_number):
         """
         Run the initial condition event contained in HDF5 dataset object `ic`
         and save observables to `results`.
@@ -452,18 +470,29 @@ def run_events(args, results_file, checkpoint_ic=None):
 
         # read final particle data
         with open('particles_out.dat', 'rb') as f:
-            parts = np.fromiter(
-                (tuple(l.split()) for l in f if not l.startswith(b'#')),
-                dtype=[
-                    ('ID', int),
-                    ('charge', int),
-                    ('pT', float),
-                    ('ET', float),
-                    ('mT', float),
-                    ('phi', float),
-                    ('y', float),
-                    ('eta', float),
-                ]
+
+            # partition UrQMD file into oversamples
+            groups = groupby(f, key=lambda l: l.startswith(b'#'))
+            samples = filter(lambda g: not g[0], groups)
+
+            # iterate over particles and oversamples
+            parts_iter = (
+                tuple((nsample, *l.split()))
+                for nsample, (header, sample) in enumerate(samples, start=1)
+                for l in sample
+            )
+
+            parts = np.fromiter(parts_iter, dtype=parts_dtype)
+
+        # save raw particle data (optional)
+        if particles_file is not None:
+
+            # save event to hdf5 data set
+            logging.info('saving raw particle data')
+
+            particles_file.create_dataset(
+                'event_{}'.format(event_number),
+                data=parts, compression='lzf'
             )
 
         logging.info('computing observables')
@@ -508,8 +537,11 @@ def run_events(args, results_file, checkpoint_ic=None):
         logging.info('starting event %d', n)
 
         try:
-            run_single_event(ic)
+            run_single_event(ic, n)
         except StopEvent as e:
+            particles_file.create_dataset(
+                'event_{}'.format(n), shape=(0,), dtype=parts_dtype
+            )
             logging.info('event stopped: %s', e)
         except Exception:
             logging.exception('event %d failed', n)
@@ -556,7 +588,7 @@ def main():
 
             # append rank to path arguments, e.g.:
             #   /path/to/output.log  ->  /path/to/output/<rank>.log
-            for a in ['results', 'logfile', 'checkpoint']:
+            for a in ['results', 'logfile', 'particles', 'checkpoint']:
                 value = getattr(args, a)
                 if value is not None:
                     root, ext = os.path.splitext(value)
@@ -572,6 +604,9 @@ def main():
     else:
         logfile_kwargs = dict(filename=args.logfile, filemode=filemode)
         os.makedirs(os.path.dirname(args.logfile), exist_ok=True)
+
+    if args.particles is not None:
+        os.makedirs(os.path.dirname(args.particles), exist_ok=True)
 
     if args.checkpoint is not None:
         os.makedirs(os.path.dirname(args.checkpoint), exist_ok=True)
@@ -597,16 +632,21 @@ def main():
     signal.signal(signal.SIGTERM, signal.default_int_handler)
     logging.debug('set SIGTERM handler')
 
+    @contextmanager
+    def h5py_file():
+        yield h5py.File(args.particles, 'w') if args.particles else None
+
     with \
             open(args.results, filemode + 'b',
                  buffering=args.buffering) as results_file, \
+            h5py_file() as particles_file, \
             tempfile.TemporaryDirectory(
                 prefix='hic-', dir=args.tmpdir) as workdir:
         os.chdir(workdir)
         logging.info('working directory: %s', workdir)
 
         try:
-            status = run_events(args, results_file, checkpoint_ic)
+            status = run_events(args, results_file, particles_file, checkpoint_ic)
         except KeyboardInterrupt:
             # after catching the initial SIGTERM or interrupt, ignore them
             # during shutdown -- this ensures everything will exit gracefully

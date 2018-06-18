@@ -46,7 +46,9 @@ The basic usage is
 
     run-events [options] results_file
 
-Observables are written to `results_file` in __binary__ format (see [event data format](#event-data-format) below).
+Observables are written to `results_file` in __binary__ format.
+Raw particle data may also be saved to an hdf5 file using the option `--particles <filename>`.
+For more information, see [event data format](#event-data-format) and [raw particle data](#raw-particle-data) below.
 
 The most common options are:
 
@@ -108,6 +110,26 @@ The metadata takes up too much space relative to the actual data and reading man
 
 The best solution would probably be some kind of scalable database (perhaps MongoDB), but I simply haven't had time to get that up and running.
 If someone wants to do it, by all means go ahead!
+
+### Raw particle data
+
+Occasionally, it is necessary to save the UrQMD particle data output by each event. This can produce _a lot_ of data, typically on the order of ~1 MB per event.
+
+The raw particle data may be saved to an hdf5 file using `--particles <filename>`. The hdf5 file is easily loaded and inspected in Python. For example,
+```python
+import h5py
+
+with h5py.File('particles.hdf', 'r') as f:
+    for event in f.values():
+        for particle in event:
+            print(particle.dtype)
+```
+prints the data format
+```python
+[('sample', '<i8'), ('ID', '<i8'), ('charge', '<i8'), ('pT', '<f8'), ('ET', '<f8'), ('mT', '<f8'), ('phi', '<f8'), ('y', '<f8'), ('eta', '<f8')]
+```
+for each particle in the event. Here `sample` denotes the number of the UrQMD oversample, `ID` is the Particle Data Group particle number, `charge` is its electric charge, `pT` the transverse momentum, `ET` the transverse energy, `mT` the transverse mass, `phi` the azimuthal angle, `y` the rapidity, and `eta` the pseudorapidity.
+
 
 ### Input files
 

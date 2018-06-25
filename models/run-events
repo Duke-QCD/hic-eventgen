@@ -539,9 +539,10 @@ def run_events(args, results_file, particles_file=None, checkpoint_ic=None):
         try:
             run_single_event(ic, n)
         except StopEvent as e:
-            particles_file.create_dataset(
-                'event_{}'.format(n), shape=(0,), dtype=parts_dtype
-            )
+            if particles_file is not None:
+                particles_file.create_dataset(
+                    'event_{}'.format(n), shape=(0,), dtype=parts_dtype
+                )
             logging.info('event stopped: %s', e)
         except Exception:
             logging.exception('event %d failed', n)
